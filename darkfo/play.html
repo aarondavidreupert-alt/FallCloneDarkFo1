@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<!--
+Copyright 2014 darkf
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+ -->
+
+<html>
+<head>
+<title>DarkFO</title>
+<meta charset="utf-8">
+
+<link rel="stylesheet" type="text/css" href="ui.css">
+
+<script src="lib/heart.js"></script>
+<script src="lib/pathfinding-browser.js"></script>
+<script src="lib/pako.min.js"></script>
+
+<script src="js/config.js"></script>
+
+<script src="js/util.js"></script>
+<script src="js/geometry.js"></script>
+
+<script src="js/pro.js"></script>
+        
+<script src="js/scripting.js"></script>
+<script src="js/intfile.js"></script>
+<script src="js/dis.js"></script>
+<script src="js/vm.js"></script>
+<script src="js/vm_bridge.js"></script>
+
+<script src="js/object.js"></script>
+<script src="js/critter.js"></script>
+        
+<script src="js/criticalEffects.js"></script>
+<script src="js/skillDependencies.js"></script>
+<script src="js/char.js"></script>
+
+<script src="js/data.js"></script>
+<script src="js/worldmap.js"></script>
+<script src="js/encounters.js"></script>
+
+<script src="js/lightmap.js"></script>
+<script src="js/lighting.js"></script>
+<!-- Optional look-up table -->
+<script src="lut/intensityColorTable.js"></script>
+
+<script src="js/renderer.js"></script>
+<script src="js/canvasrenderer.js"></script>
+<script src="js/webglrenderer.js"></script>
+
+<script src="js/player.js"></script>
+<script src="js/party.js"></script>
+<script src="js/combat.js"></script>
+        
+<script src="js/ui.js"></script>
+<script src="js/audio.js"></script>
+
+<script src="js/saveload.js"></script>
+<script src="js/idbcache.js"></script>
+
+<script src="js/events.js"></script>
+
+<script src="js/net.js"></script>
+
+<script src="js/map.js"></script>
+<script src="js/main.js"></script>
+
+<!-- WebGL vertex shader -->
+<script id="2d-vertex-shader" type="x-shader/x-vertex">
+attribute vec2 a_position;
+
+attribute vec2 a_texCoord;
+varying vec2 v_texCoord;
+
+uniform vec2 u_resolution;
+uniform vec2 u_offset;
+uniform vec2 u_scale;
+
+
+void main() {
+   // convert the rectangle from pixels to 0.0 to 1.0
+   vec2 zeroToOne = (a_position * u_scale + u_offset) / u_resolution;
+
+   // convert from 0->1 to 0->2
+   vec2 zeroToTwo = zeroToOne * 2.0;
+
+   // convert from 0->2 to -1->+1 (clipspace)
+   vec2 clipSpace = zeroToTwo - 1.0;
+
+   gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+
+   v_texCoord = a_texCoord;
+}
+</script>
+
+<!-- WebGL fragment shader -->
+<script id="2d-fragment-shader" type="x-shader/x-fragment">
+precision mediump float;
+
+uniform sampler2D u_image;
+uniform float u_numFrames;
+uniform float u_frame;
+
+varying vec2 v_texCoord;
+
+void main() {
+	float frameWidth = 1.0 / u_numFrames;
+	vec2 coord = v_texCoord;
+	coord.x = coord.x / u_numFrames + frameWidth * u_frame;
+
+	gl_FragColor = texture2D(u_image, coord);
+}
+</script>
+
+<!-- WebGL floor lighting fragment shader -->
+<script id="2d-lighting-fragment-shader" type="x-shader/x-fragment">
+precision mediump float;
+
+// uniform int u_colorTable[0x8000];
+// uniform int u_intensityColorTable[65536];
+// uniform vec3 u_paletteRGB[256];
+
+uniform sampler2D u_colorTable;
+uniform sampler2D u_intensityColorTable;
+uniform sampler2D u_paletteRGB;
+
+uniform sampler2D u_image;
+uniform sampler2D u_lightBuffer;
+
+varying vec2 v_texCoord;
+
+int colorToColorTableRGB(const vec3 color) {
+	// Get 5-bit "paletted" RGB values
+	// for this to work, r, g, and b need to be in the range 0..31 (5 bits)
+	//vec3 v = vec3(color.x*255 / 8, color.y*255 / 8, color.z*255 / 8); // Get 5-bit "paletted" RGB values
+	int r = int(color.r*255.0) / 8;
+	int g = int(color.g*255.0) / 8;
+	int b = int(color.b*255.0) / 8;
+
+	// r << 10 | g << 5 | b
+	return 32*32 * r + 32 * g + b;
+}
+
+vec4 atIndex(sampler2D tex, int index) {
+	const float size = 256.0; // max size of texture
+	float x = mod(float(index), size);
+	float y = /* 1.0 - */ float(index / int(size)); // use upside-down V coordinates because OpenGL likes textures bottom-to-top but we don't play their game
+	return texture2D(tex, vec2((x + 0.5) / size,
+		                       (y + 0.5) / size));
+}
+
+vec3 paletteColor(int palIdx) {
+	return texture2D(u_paletteRGB, vec2((float(palIdx) + 0.5) / 256.0, 1.0)).rgb;
+}
+
+void main() {
+	vec4 tileTexel = texture2D(u_image, v_texCoord);
+	vec4 light = texture2D(u_lightBuffer, v_texCoord);
+
+	float lightIntensity = min(light.r, 65536.0);
+
+	int colorIdx = colorToColorTableRGB(tileTexel.rgb);
+	int palIdx = int(atIndex(u_colorTable, colorIdx).r);
+	int tableIdx = palIdx*256 + int(lightIntensity/512.0);
+	int colorPal = int(atIndex(u_intensityColorTable, tableIdx).r);
+	vec3 color = paletteColor(colorPal);
+
+	gl_FragColor = vec4(color, tileTexel.a);
+}
+</script>
+</head>
+<body>
+<div id="game-container">
+	<canvas id="cnv" width="800" height="600">your browser doesn't support &lt;canvas&gt;</canvas>
+	<div id="overlay-container">
+		<div id="overlay">
+			<div id="fpsOverlay"></div>
+		</div>
+	</div>
+	<div id="lootBox">
+		<div id="lootBoxLeft"></div>
+		<div id="lootBoxRight"></div>
+
+		<div id="lootBoxDoneButton"></div>
+		<div id="lootBoxTakeAllButton"></div>
+	</div>
+	<div id="dialogueContainer">
+  		<div id="dialogueBoxReply"></div>
+		<div id="dialogueBox">
+	  		<div id="dialogueBoxTextArea"></div>
+		</div>
+		<div id="barterBox">
+	  		<div id="barterBoxInventoryLeft"></div>
+	  		<div id="barterBoxInventoryRight"></div>
+
+	  		<div id="barterBoxLeft"></div>
+	  		<div id="barterBoxRight"></div>
+	  		<div id="barterBoxLeftAmount"></div>
+	  		<div id="barterBoxRightAmount"></div>
+
+	  		<div id="barterTalkButton"></div>
+	  		<div id="barterOfferButton"></div>
+		</div>
+	</div>
+	<div id="itemContextMenu"></div>
+	<div id="inventoryBox">
+		<div id="inventoryBoxList"></div>
+		<div id="inventoryDoneButton"></div>
+		<div id="inventoryBoxInfo"></div>
+
+		<!-- item1/item2/armor boxes -->
+		<div id="inventoryBoxItem1"></div>
+		<div id="inventoryBoxItem2"></div>
+		<div id="inventoryBoxArmor"></div>
+	</div>
+	<div id="bar">
+		<div id="displayLog"></div>
+
+		<div id="attackButtonContainer" class="disable-selection">
+			<div id="attackButton"></div>
+			<img id="attackButtonType">
+			<img id="attackButtonWeapon">
+			<div id="attackButtonCalled"></div>
+			<div id="attackButtonAP">
+				<div id="attackButtonAPDigit"></div>
+			</div>
+		</div>
+		<div id="inventoryButton"></div>
+		<div id="chrButton"></div>
+
+		<div id="hpNumber">
+			<div id="hpDigit1" class="number"></div>
+			<div id="hpDigit2" class="number"></div>
+			<div id="hpDigit3" class="number"></div>
+			<div id="hpDigit4" class="number"></div>
+		</div>
+
+		<div id="acNumber">
+			<div id="acDigit1" class="number"></div>
+			<div id="acDigit2" class="number"></div>
+			<div id="acDigit3" class="number"></div>
+			<div id="acDigit4" class="number"></div>
+		</div>
+
+		<div id="skilldexButton"></div>
+
+		<div id="endContainer">
+			<div id="endTurnButton"></div>
+			<div id="endCombatButton"></div>
+		</div>
+	</div>
+	<div id="worldMapContainer">
+		<div id="worldMapBox">
+			<div id="worldMapLabels"></div>
+		</div>
+		<div id="worldMapWorld">
+			<div id="worldmap">
+				<img id="worldmapImage" src="worldmap.png">
+				<div id="worldmapTarget"></div>
+				<div id="worldmapPlayer"></div>
+			</div>
+			<div id="areamap"></div>
+		</div>
+	</div>
+	<div id="elevatorBox">
+		<div id="elevatorLabel"></div>
+		<div id="elevatorButton1" class="elevatorButton"></div>
+		<div id="elevatorButton2" class="elevatorButton"></div>
+		<div id="elevatorButton3" class="elevatorButton"></div>
+		<div id="elevatorButton4" class="elevatorButton"></div>
+		<div id="elevatorPositioner"></div>
+	</div>
+	<div id="calledShotBox">
+		<div id="calledShotBackground"></div>
+		<div id="calledShotCancelBtn"></div>
+	
+		<div id="calledShot-head-label" class="calledShotLabel">the head</div>
+		<div id="calledShot-eyes-label" class="calledShotLabel">the eyes</div>
+		<div id="calledShot-leftArm-label" class="calledShotLabel">the left arm</div>
+		<div id="calledShot-rightArm-label" class="calledShotLabel">the right arm</div>
+		<div id="calledShot-leftLeg-label" class="calledShotLabel">the left leg</div>
+		<div id="calledShot-rightLeg-label" class="calledShotLabel">the right leg</div>
+		<div id="calledShot-groin-label" class="calledShotLabel">the groin</div>
+		<div id="calledShot-torso-label" class="calledShotLabel">the torso</div>
+
+		<div id="calledShot-head-chance" class="calledShotChance"></div>
+		<div id="calledShot-eyes-chance" class="calledShotChance"></div>
+		<div id="calledShot-leftArm-chance" class="calledShotChance"></div>
+		<div id="calledShot-rightArm-chance" class="calledShotChance"></div>
+		<div id="calledShot-leftLeg-chance" class="calledShotChance"></div>
+		<div id="calledShot-rightLeg-chance" class="calledShotChance"></div>
+		<div id="calledShot-groin-chance" class="calledShotChance"></div>
+		<div id="calledShot-torso-chance" class="calledShotChance"></div>
+	</div>
+</div>
+</body>
+</html>
