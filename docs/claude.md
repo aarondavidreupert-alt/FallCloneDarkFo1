@@ -1,7 +1,15 @@
 # CLAUDE.md — Project Rules & Context
 
+## Read These Files First (Always)
+1. docs/CLAUDE.md (this file)
+2. docs/design.md
+3. docs/phases.md
+4. darkfo/README.md
+5. darkfo/README_BUILDING.md (if exists)
+
 ## What this project is
-A browser-based Fallout 1 remake built on top of DarkFO (a Fallout 2 engine reimplementation in TypeScript).
+A browser-based Fallout 1 remake built on top of DarkFO (a Fallout 2 engine 
+reimplementation in TypeScript).
 We are adapting DarkFO for Fallout 1 assets and adding our own features on top.
 
 ## Tech Stack
@@ -17,6 +25,7 @@ We are adapting DarkFO for Fallout 1 assets and adding our own features on top.
    - DarkFO has it but it's broken/outdated → modernize it
    - DarkFO doesn't have it → write it fresh
 3. Never rewrite working DarkFO code just for the sake of it
+4. Never modify anything inside /darkfo/ — it is read-only reference
 
 ## Git Rules
 - NEVER create pull requests
