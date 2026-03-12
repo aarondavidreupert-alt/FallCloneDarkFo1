@@ -1,0 +1,10 @@
+*.json
+!tsconfig.json
+*.images.txt
+*.map
+*.pyc
+data/
+art/
+.DS_Store
+xcuserdata
+contents.xcworkspacedata

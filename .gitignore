@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.local
+
+# Fallout 1 raw assets — LOCAL ONLY, never commit
+public/assets/art/
+public/assets/sound/
+public/assets/proto/
+public/assets/scripts/
+
+# OS / editor
+.DS_Store
+.vscode/
+*.swp
