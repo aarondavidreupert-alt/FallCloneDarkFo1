@@ -20,7 +20,7 @@ from PIL import Image
 from .pal import Palette, flatten_palette
 
 
-# ── Low-level readers ──────────────────────────────────────────────────────
+# ── Low-level readers ────
 
 def _r16(data: bytes, i: int) -> int:
     return struct.unpack_from("!h", data, i)[0]
@@ -35,7 +35,7 @@ def _ru32(data: bytes, i: int) -> int:
     return struct.unpack_from("!L", data, i)[0]
 
 
-# ── FRM info parsing ────────────────────────────────────────────────────────
+# ── FRM info parsing ────
 
 def _read_frm_info(data: bytes, export_pixels: bool = True) -> Dict[str, Any]:
     """
@@ -50,29 +50,42 @@ def _read_frm_info(data: bytes, export_pixels: bool = True) -> Dict[str, Any]:
 
     d_offset_x = [struct.unpack_from("!h", data, pos + 2*i)[0] for i in range(6)]; pos += 12
     d_offset_y = [struct.unpack_from("!h", data, pos + 2*i)[0] for i in range(6)]; pos += 12
-    dir_ptrs   = [struct.unpack_from("!l", data, pos + 4*i)[0] for i in range(6)]; pos += 24
-    frames_buf_size = struct.unpack_from("!l", data, pos)[0]; pos += 4
+    dir_ptrs   = [struct.unpack_from("!L", data, pos + 4*i)[0] for i in range(6)]; pos += 24
+    _frames_buf_size = struct.unpack_from("!L", data, pos)[0]; pos += 4
 
-    frames_data = data[pos: pos + frames_buf_size]
+    # frame_block_start is the absolute offset in `data` where frame data begins.
+    # dir_ptrs are relative offsets from this point — read directly from `data`,
+    # no sub-slice, avoids the signed/truncated-buffer bug entirely.
+    frame_block_start = pos
 
-    n_dir_total = 1 + sum(1 for x in dir_ptrs if x != 0)
+    # Count unique pointer values to find real direction count.
+    # Single-dir FRMs: all 6 ptrs == 0 → 1 unique → n_dir_total = 1. ✓
+    # 6-dir FRMs: all 6 unique → n_dir_total = 6. ✓
+    seen: dict = {}
+    dir_indices = []
+    for d_idx in range(6):
+        offset = dir_ptrs[d_idx]
+        if offset not in seen:
+            seen[offset] = d_idx
+            dir_indices.append(d_idx)
+    n_dir_total = len(dir_indices)
 
     frame_pixels: List[List[np.ndarray]] = [[] for _ in range(n_dir_total)]
     frame_offsets: List[List[Dict]] = [[] for _ in range(n_dir_total)]
 
-    for nd in range(n_dir_total):
-        ptr = dir_ptrs[nd]
+    for nd, d_idx in enumerate(dir_indices):
+        ptr = frame_block_start + dir_ptrs[d_idx]
         for _ in range(num_frames):
-            w    = _ru16(frames_data, ptr + 0)
-            h    = _ru16(frames_data, ptr + 2)
-            size = _ru32(frames_data, ptr + 4)
-            ox   = _r16(frames_data,  ptr + 8)
-            oy   = _r16(frames_data,  ptr + 10)
+            w    = _ru16(data, ptr + 0)
+            h    = _ru16(data, ptr + 2)
+            size = _ru32(data, ptr + 4)
+            ox   = _r16(data,  ptr + 8)
+            oy   = _r16(data,  ptr + 10)
 
             frame_offsets[nd].append({"x": ox, "y": oy, "w": w, "h": h})
 
             if export_pixels:
-                raw = frames_data[ptr + 12: ptr + 12 + size]
+                raw = data[ptr + 12: ptr + 12 + size]
                 # Python 3: np.frombuffer on bytes → read-only, so .copy()
                 frame_pixels[nd].append(
                     np.frombuffer(raw, dtype=np.uint8).copy()
@@ -85,13 +98,13 @@ def _read_frm_info(data: bytes, export_pixels: bool = True) -> Dict[str, Any]:
         "numDirections":   n_dir_total,
         "totalFrames":     num_frames * n_dir_total,
         "directionOffsets": [{"x": x, "y": y}
-                              for x, y in zip(d_offset_x, d_offset_y)],
+                    for x, y in zip(d_offset_x, d_offset_y)],
         "frameOffsets":    frame_offsets,
         "framePixels":     frame_pixels,
     }
 
 
-# ── Single-FRM export ───────────────────────────────────────────────────────
+# ── Single-FRM export ────
 
 def export_frm(frm_path: str, out_path: str, palette: Palette,
                export_image: bool = True) -> Dict[str, Any]:
@@ -150,7 +163,7 @@ def export_frm(frm_path: str, out_path: str, palette: Palette,
     return info
 
 
-# ── Multi-FRM (.FR0–.FR5) export ────────────────────────────────────────────
+# ── Multi-FRM (.FR0–.FR5) export ────
 
 def export_frms(frm_files: List[str], out_path: str, palette: Palette,
                 export_image: bool = True) -> Dict[str, Any]:

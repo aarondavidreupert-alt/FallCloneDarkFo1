@@ -20,11 +20,11 @@ def read_pal(path: str) -> Palette:
         for _ in range(256):
             # Python 3: indexing bytes gives ints directly (no ord() needed)
             r, g, b = f.read(1)[0], f.read(1)[0], f.read(1)[0]
-            # Fallout palette values are 6-bit (0–63); scale to 8-bit
-            if r <= 63 and g <= 63 and b <= 63:
-                r, g, b = r * 4, g * 4, b * 4
-            else:
-                r = g = b = 0
+            # Fallout palette values are 6-bit (0–63); scale to 8-bit.
+            # Clamp to 63 before scaling so no entry is silently zeroed out.
+            r = min(r, 63) * 4
+            g = min(g, 63) * 4
+            b = min(b, 63) * 4
             palette.append((r, g, b))
     return palette
 
