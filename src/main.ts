@@ -1,12 +1,17 @@
 /**
- * Entry point — initialises Phaser 3 and launches the GameScene.
+ * Entry point — initialises Phaser 3 and launches the scene chain.
+ *
+ * Scene order:
+ *   PreloadScene → loads tile PNGs + critter PNG, then hands off to GameScene
+ *   GameScene    → renders the isometric map using pre-loaded textures
  *
  * Renderer: WebGL (falls back to Canvas automatically via Phaser).
  * Resolution: 800×600 — matches the HUD layout in GameScene.
  */
 
 import Phaser from 'phaser'
-import { GameScene } from './scenes/GameScene'
+import { PreloadScene } from './scenes/PreloadScene'
+import { GameScene }    from './scenes/GameScene'
 
 const SCREEN_WIDTH  = 800
 const SCREEN_HEIGHT = 600
@@ -16,7 +21,7 @@ new Phaser.Game({
   width:  SCREEN_WIDTH,
   height: SCREEN_HEIGHT,
   backgroundColor: '#1a1008',
-  scene:  [GameScene],
+  scene:  [PreloadScene, GameScene],
   scale: {
     mode:            Phaser.Scale.FIT,
     autoCenter:      Phaser.Scale.CENTER_BOTH,
