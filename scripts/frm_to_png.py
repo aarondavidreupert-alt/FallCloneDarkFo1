@@ -43,7 +43,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from lib.pal import read_pal, flatten_palette
+from lib.pal import read_pal
 from lib.frm import export_frm, export_frms
 
 # Subdirectories to convert — matches Harold's exportImages.py list plus backgrnd
@@ -78,7 +78,7 @@ def _worker_frx(task: tuple) -> tuple[str, dict | None]:
 # ── Task builders ─────────────────────────────────────────────────────────────
 
 def _frm_tasks(
-    palette: list[int], data_dir: str, out_dir: str
+    palette: list[tuple[int, int, int]], data_dir: str, out_dir: str
 ) -> list[tuple]:
     """Single-direction .frm files."""
     tasks = []
@@ -93,7 +93,7 @@ def _frm_tasks(
 
 
 def _frx_tasks(
-    palette: list[int], data_dir: str, out_dir: str
+    palette: list[tuple[int, int, int]], data_dir: str, out_dir: str
 ) -> list[tuple]:
     """Multi-directional .fr0–.fr5 sets (mostly critters)."""
     tasks = []
@@ -136,7 +136,7 @@ def convert_all(
     if not os.path.exists(pal_path):
         raise FileNotFoundError(f"Palette not found: {pal_path}")
 
-    palette = flatten_palette(read_pal(pal_path))
+    palette = read_pal(pal_path)
 
     os.makedirs(out_dir, exist_ok=True)
     for subdir in SUBDIRS:
