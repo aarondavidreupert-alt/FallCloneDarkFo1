@@ -8,6 +8,11 @@ public/assets/sound/
 public/assets/proto/
 public/assets/scripts/
 
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
 # OS / editor
 .DS_Store
 .vscode/

@@ -37,3 +37,19 @@ def flatten_palette(palette: Palette) -> List[int]:
 def palette_to_dict(palette: Palette) -> List[List[int]]:
     """Convert palette to JSON-serialisable list of [r,g,b] lists."""
     return [list(rgb) for rgb in palette]
+
+
+def read_color_table(path: str) -> list[int]:
+    """
+    Read the 32 KB color look-up table that follows the palette in a .PAL file.
+
+    Ported from Harold's darkfo/pal.py readColorTable().
+    The color table starts at byte offset 256*3 (immediately after the 256
+    palette entries) and is 0x8000 bytes (32 768 entries).
+
+    Returns a list of ints (one byte per entry, range 0-255).
+    """
+    with open(path, "rb") as f:
+        f.seek(256 * 3)
+        return list(f.read(0x8000))
+  
