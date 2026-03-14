@@ -38,7 +38,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from lib import dat1, dat2
 
 
-# ── Format detection ──────────────────────────────────────────────────────────
+# ── Format detection ────
 
 def _detect_format(dat_path: str) -> str:
     """Return 'dat1' or 'dat2'."""
@@ -47,8 +47,8 @@ def _detect_format(dat_path: str) -> str:
         # If archive_size matches file size it's DAT2
         file_size = os.path.getsize(dat_path)
         f.seek(-8, 2)
-        _tree = struct.unpack("<l", f.read(4))[0]
-        arch  = struct.unpack("<l", f.read(4))[0]
+        _tree = struct.unpack("<L", f.read(4))[0]
+        arch  = struct.unpack("<L", f.read(4))[0]
         if arch == file_size:
             return "dat2"
 
@@ -61,7 +61,7 @@ def _detect_format(dat_path: str) -> str:
     return "dat1"  # default assumption for Fallout 1
 
 
-# ── Extraction ────────────────────────────────────────────────────────────────
+# ── Extraction ────
 
 def extract_dat(dat_path: str, out_dir: str, force_fmt: str = "") -> None:
     fmt = force_fmt or _detect_format(dat_path)
@@ -98,7 +98,7 @@ def extract_all_dats(install_dir: str, out_dir: str, force_fmt: str = "") -> Non
         extract_dat(dat_path, out_dir, force_fmt)
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# ── CLI ────
 
 def main():
     ap = argparse.ArgumentParser(description="Extract Fallout DAT archives")
