@@ -12,3 +12,4 @@ public/assets/scripts/
 .DS_Store
 .vscode/
 *.swp
+/scripts/fallout
