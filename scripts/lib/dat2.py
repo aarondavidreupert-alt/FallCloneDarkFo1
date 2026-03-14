@@ -2,11 +2,16 @@
 Fallout 2 DAT2 archive reader — Python 3 port of darkfo/dat2.py
 Original: Copyright 2015 darkf (Apache 2.0)
 
-Python 3 changes:
+Python 3 changes vs Harold's original:
   - iteritems() → items()
   - ord(f.read(1)) → f.read(1)[0]
   - filename encoding handled via .decode('ascii', errors='replace')
-  - print statements already updated (original used print_function)
+  - read_dat(path) takes a path string instead of a file object
+  - read_file(dat_path, entry) takes a path + entry instead of open file
+
+Harold-compatible aliases provided:
+  - read_file_obj(f, entry)  → read from an already-open file object
+  - dump_files(dat_path, out_dir, verbose) → alias for extract_all()
 """
 
 import os
@@ -92,3 +97,28 @@ def extract_all(dat_path: str, out_dir: str, verbose: bool = True) -> int:
             print(f"  WARNING: could not extract {fname}: {e}")
 
     return total
+
+
+# ── Harold-compatible API ─────────────────────────────────────────────────────
+
+def read_file_obj(f: "IO[bytes]", entry: Dat2Entry, check_size: bool = True) -> bytes:
+    """
+    Extract a single file from an already-open DAT2 file object.
+    Mirrors Harold's readFile(f, fileEntry, checkSize=True).
+    """
+    f.seek(entry.offset)
+    data = f.read(entry.packed_size)
+
+    if entry.compressed:
+        data = zlib.decompress(data, 15, entry.unpacked_size)
+        if check_size and len(data) != entry.unpacked_size:
+            raise ValueError(
+                f"Zlib decompress size mismatch for {entry.filename}: "
+                f"got {len(data)}, expected {entry.unpacked_size}"
+            )
+    return data
+
+
+def dump_files(dat_path: str, out_dir: str, verbose: bool = True) -> int:
+    """Alias for extract_all() — matches Harold's dumpFiles() name."""
+    return extract_all(dat_path, out_dir, verbose=verbose)
