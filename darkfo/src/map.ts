@@ -284,12 +284,12 @@ class GameMap {
 
         console.log("loading map " + mapName)
 
-        var mapImages = getFileJSON("maps/" + mapName + ".images.json")
+        var mapImages = getFileJSON("assets/maps/" + mapName + ".images.json")
         for(var i = 0; i < mapImages.length; i++)
             load(mapImages[i])
         console.log("loading " + mapImages.length + " images")
 
-        var map = getFileJSON("maps/"+mapName+".json")
+        var map = getFileJSON("assets/maps/"+mapName+".json")
         this.mapObj = map
         this.mapID = map.mapID
         this.numLevels = map.levels.length

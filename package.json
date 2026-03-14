@@ -1,14 +1,11 @@
 {
   "name": "fallclone",
   "version": "0.1.0",
-  "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "phaser": "^3.87.0"
+    "build": "tsc -p darkfo/tsconfig.json; vite build",
+    "preview": "vite preview",
+    "setup": "node -e \"const fs=require('fs');fs.mkdirSync('public/assets/art',{recursive:true});fs.mkdirSync('public/assets/proto',{recursive:true});if(!fs.existsSync('public/assets/art/imageMap.json'))fs.writeFileSync('public/assets/art/imageMap.json','{}');if(!fs.existsSync('public/assets/proto/pro.json'))fs.writeFileSync('public/assets/proto/pro.json','{}');\""
   },
   "devDependencies": {
     "typescript": "^5.4.5",
