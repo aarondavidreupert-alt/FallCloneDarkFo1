@@ -112,7 +112,7 @@ function lazyLoadImage(art: string, callback?: (x: any) => void, isHeartImg?: bo
             lazyAssetLoadingQueue[art] = undefined
         }
     }
-    img.src = art + '.png'
+    img.src = 'assets/' + art + '.png'
 }
 
 function lookupScriptName(scriptID: number): string {
@@ -307,10 +307,10 @@ heart.load = function() {
     }
 
     IDBCache.init(() => {
-        cachedJSON("imageMap", "art/imageMap.json", value => {
+        cachedJSON("imageMap", "assets/art/imageMap.json", value => {
             imageInfo = value;
 
-            cachedJSON("proMap", "proto/pro.json", value => {
+            cachedJSON("proMap", "assets/proto/pro.json", value => {
                 proMap = value;
 
                 // continue initialization

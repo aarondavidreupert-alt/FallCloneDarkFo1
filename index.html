@@ -1,16 +1,285 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Fallout 1 — FallClone</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-    canvas { display: block; }
-  </style>
+<title>Fallout 1 — FallClone (DarkFO)</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<link rel="stylesheet" type="text/css" href="darkfo/ui.css">
+
+<script src="darkfo/lib/heart.js"></script>
+<script src="darkfo/lib/pathfinding-browser.js"></script>
+<script src="darkfo/lib/pako.min.js"></script>
+
+<script src="darkfo/js/config.js"></script>
+
+<script src="darkfo/js/util.js"></script>
+<script src="darkfo/js/geometry.js"></script>
+
+<script src="darkfo/js/pro.js"></script>
+
+<script src="darkfo/js/scripting.js"></script>
+<script src="darkfo/js/intfile.js"></script>
+<script src="darkfo/js/dis.js"></script>
+<script src="darkfo/js/vm.js"></script>
+<script src="darkfo/js/vm_bridge.js"></script>
+
+<script src="darkfo/js/object.js"></script>
+<script src="darkfo/js/critter.js"></script>
+
+<script src="darkfo/js/criticalEffects.js"></script>
+<script src="darkfo/js/skillDependencies.js"></script>
+<script src="darkfo/js/char.js"></script>
+
+<script src="darkfo/js/data.js"></script>
+<script src="darkfo/js/worldmap.js"></script>
+<script src="darkfo/js/encounters.js"></script>
+
+<script src="darkfo/js/lightmap.js"></script>
+<script src="darkfo/js/lighting.js"></script>
+<!-- Optional look-up table -->
+<script src="darkfo/lut/intensityColorTable.js"></script>
+
+<script src="darkfo/js/renderer.js"></script>
+<script src="darkfo/js/canvasrenderer.js"></script>
+<script src="darkfo/js/webglrenderer.js"></script>
+
+<script src="darkfo/js/player.js"></script>
+<script src="darkfo/js/party.js"></script>
+<script src="darkfo/js/combat.js"></script>
+
+<script src="darkfo/js/ui.js"></script>
+<script src="darkfo/js/audio.js"></script>
+
+<script src="darkfo/js/saveload.js"></script>
+<script src="darkfo/js/idbcache.js"></script>
+
+<script src="darkfo/js/events.js"></script>
+
+<script src="darkfo/js/net.js"></script>
+
+<script src="darkfo/js/map.js"></script>
+<script src="darkfo/js/main.js"></script>
+
+<!-- WebGL vertex shader -->
+<script id="2d-vertex-shader" type="x-shader/x-vertex">
+attribute vec2 a_position;
+
+attribute vec2 a_texCoord;
+varying vec2 v_texCoord;
+
+uniform vec2 u_resolution;
+uniform vec2 u_offset;
+uniform vec2 u_scale;
+
+
+void main() {
+   // convert the rectangle from pixels to 0.0 to 1.0
+   vec2 zeroToOne = (a_position * u_scale + u_offset) / u_resolution;
+
+   // convert from 0->1 to 0->2
+   vec2 zeroToTwo = zeroToOne * 2.0;
+
+   // convert from 0->2 to -1->+1 (clipspace)
+   vec2 clipSpace = zeroToTwo - 1.0;
+
+   gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
+
+   v_texCoord = a_texCoord;
+}
+</script>
+
+<!-- WebGL fragment shader -->
+<script id="2d-fragment-shader" type="x-shader/x-fragment">
+precision mediump float;
+
+uniform sampler2D u_image;
+uniform float u_numFrames;
+uniform float u_frame;
+
+varying vec2 v_texCoord;
+
+void main() {
+	float frameWidth = 1.0 / u_numFrames;
+	vec2 coord = v_texCoord;
+	coord.x = coord.x / u_numFrames + frameWidth * u_frame;
+
+	gl_FragColor = texture2D(u_image, coord);
+}
+</script>
+
+<!-- WebGL floor lighting fragment shader -->
+<script id="2d-lighting-fragment-shader" type="x-shader/x-fragment">
+precision mediump float;
+
+uniform sampler2D u_colorTable;
+uniform sampler2D u_intensityColorTable;
+uniform sampler2D u_paletteRGB;
+
+uniform sampler2D u_image;
+uniform sampler2D u_lightBuffer;
+
+varying vec2 v_texCoord;
+
+int colorToColorTableRGB(const vec3 color) {
+	int r = int(color.r*255.0) / 8;
+	int g = int(color.g*255.0) / 8;
+	int b = int(color.b*255.0) / 8;
+
+	return 32*32 * r + 32 * g + b;
+}
+
+vec4 atIndex(sampler2D tex, int index) {
+	const float size = 256.0;
+	float x = mod(float(index), size);
+	float y = float(index / int(size));
+	return texture2D(tex, vec2((x + 0.5) / size,
+		                       (y + 0.5) / size));
+}
+
+vec3 paletteColor(int palIdx) {
+	return texture2D(u_paletteRGB, vec2((float(palIdx) + 0.5) / 256.0, 1.0)).rgb;
+}
+
+void main() {
+	vec4 tileTexel = texture2D(u_image, v_texCoord);
+	vec4 light = texture2D(u_lightBuffer, v_texCoord);
+
+	float lightIntensity = min(light.r, 65536.0);
+
+	int colorIdx = colorToColorTableRGB(tileTexel.rgb);
+	int palIdx = int(atIndex(u_colorTable, colorIdx).r);
+	int tableIdx = palIdx*256 + int(lightIntensity/512.0);
+	int colorPal = int(atIndex(u_intensityColorTable, tableIdx).r);
+	vec3 color = paletteColor(colorPal);
+
+	gl_FragColor = vec4(color, tileTexel.a);
+}
+</script>
 </head>
 <body>
-  <script type="module" src="/src/main.ts"></script>
+<div id="game-container">
+	<canvas id="cnv" width="800" height="600">your browser doesn't support &lt;canvas&gt;</canvas>
+	<div id="overlay-container">
+		<div id="overlay">
+			<div id="fpsOverlay"></div>
+		</div>
+	</div>
+	<div id="lootBox">
+		<div id="lootBoxLeft"></div>
+		<div id="lootBoxRight"></div>
+
+		<div id="lootBoxDoneButton"></div>
+		<div id="lootBoxTakeAllButton"></div>
+	</div>
+	<div id="dialogueContainer">
+  		<div id="dialogueBoxReply"></div>
+		<div id="dialogueBox">
+	  		<div id="dialogueBoxTextArea"></div>
+		</div>
+		<div id="barterBox">
+	  		<div id="barterBoxInventoryLeft"></div>
+	  		<div id="barterBoxInventoryRight"></div>
+
+	  		<div id="barterBoxLeft"></div>
+	  		<div id="barterBoxRight"></div>
+	  		<div id="barterBoxLeftAmount"></div>
+	  		<div id="barterBoxRightAmount"></div>
+
+	  		<div id="barterTalkButton"></div>
+	  		<div id="barterOfferButton"></div>
+		</div>
+	</div>
+	<div id="itemContextMenu"></div>
+	<div id="inventoryBox">
+		<div id="inventoryBoxList"></div>
+		<div id="inventoryDoneButton"></div>
+		<div id="inventoryBoxInfo"></div>
+
+		<!-- item1/item2/armor boxes -->
+		<div id="inventoryBoxItem1"></div>
+		<div id="inventoryBoxItem2"></div>
+		<div id="inventoryBoxArmor"></div>
+	</div>
+	<div id="bar">
+		<div id="displayLog"></div>
+
+		<div id="attackButtonContainer" class="disable-selection">
+			<div id="attackButton"></div>
+			<img id="attackButtonType">
+			<img id="attackButtonWeapon">
+			<div id="attackButtonCalled"></div>
+			<div id="attackButtonAP">
+				<div id="attackButtonAPDigit"></div>
+			</div>
+		</div>
+		<div id="inventoryButton"></div>
+		<div id="chrButton"></div>
+
+		<div id="hpNumber">
+			<div id="hpDigit1" class="number"></div>
+			<div id="hpDigit2" class="number"></div>
+			<div id="hpDigit3" class="number"></div>
+			<div id="hpDigit4" class="number"></div>
+		</div>
+
+		<div id="acNumber">
+			<div id="acDigit1" class="number"></div>
+			<div id="acDigit2" class="number"></div>
+			<div id="acDigit3" class="number"></div>
+			<div id="acDigit4" class="number"></div>
+		</div>
+
+		<div id="skilldexButton"></div>
+
+		<div id="endContainer">
+			<div id="endTurnButton"></div>
+			<div id="endCombatButton"></div>
+		</div>
+	</div>
+	<div id="worldMapContainer">
+		<div id="worldMapBox">
+			<div id="worldMapLabels"></div>
+		</div>
+		<div id="worldMapWorld">
+			<div id="worldmap">
+				<img id="worldmapImage" src="assets/art/intrface/worldmap.png">
+				<div id="worldmapTarget"></div>
+				<div id="worldmapPlayer"></div>
+			</div>
+			<div id="areamap"></div>
+		</div>
+	</div>
+	<div id="elevatorBox">
+		<div id="elevatorLabel"></div>
+		<div id="elevatorButton1" class="elevatorButton"></div>
+		<div id="elevatorButton2" class="elevatorButton"></div>
+		<div id="elevatorButton3" class="elevatorButton"></div>
+		<div id="elevatorButton4" class="elevatorButton"></div>
+		<div id="elevatorPositioner"></div>
+	</div>
+	<div id="calledShotBox">
+		<div id="calledShotBackground"></div>
+		<div id="calledShotCancelBtn"></div>
+
+		<div id="calledShot-head-label" class="calledShotLabel">the head</div>
+		<div id="calledShot-eyes-label" class="calledShotLabel">the eyes</div>
+		<div id="calledShot-leftArm-label" class="calledShotLabel">the left arm</div>
+		<div id="calledShot-rightArm-label" class="calledShotLabel">the right arm</div>
+		<div id="calledShot-leftLeg-label" class="calledShotLabel">the left leg</div>
+		<div id="calledShot-rightLeg-label" class="calledShotLabel">the right leg</div>
+		<div id="calledShot-groin-label" class="calledShotLabel">the groin</div>
+		<div id="calledShot-torso-label" class="calledShotLabel">the torso</div>
+
+		<div id="calledShot-head-chance" class="calledShotChance"></div>
+		<div id="calledShot-eyes-chance" class="calledShotChance"></div>
+		<div id="calledShot-leftArm-chance" class="calledShotChance"></div>
+		<div id="calledShot-rightArm-chance" class="calledShotChance"></div>
+		<div id="calledShot-leftLeg-chance" class="calledShotChance"></div>
+		<div id="calledShot-rightLeg-chance" class="calledShotChance"></div>
+		<div id="calledShot-groin-chance" class="calledShotChance"></div>
+		<div id="calledShot-torso-chance" class="calledShotChance"></div>
+	</div>
+</div>
 </body>
 </html>

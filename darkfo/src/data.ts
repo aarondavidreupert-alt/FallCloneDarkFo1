@@ -68,7 +68,7 @@ interface Elevator {
 function getElevator(type: number): Elevator {
     if(!elevatorInfo) {
         console.log("loading elevator info")
-        elevatorInfo = getFileJSON("lut/elevators.json")
+        elevatorInfo = getFileJSON("assets/lut/elevators.json")
     }
 
     return elevatorInfo!.elevators[type]
@@ -152,7 +152,7 @@ function areaContainingMap(mapName: string) {
 }
 
 function loadAreas() {
-    return parseAreas(getFileText("data/data/city.txt"))
+    return parseAreas(getFileText("assets/data/data/city.txt"))
 }
 
 function allAreas() {
@@ -166,7 +166,7 @@ function allAreas() {
 
 function loadMessage(name: string) {
     name = name.toLowerCase()
-    var msg = getFileText("data/text/english/game/" + name + ".msg")
+    var msg = getFileText("assets/data/text/english/game/" + name + ".msg")
     if(messageFiles[name] === undefined)
         messageFiles[name] = {}
 
@@ -201,7 +201,7 @@ function loadMessage(name: string) {
 
 
 function loadLst(lst: string): string[] {
-    return getFileText("data/" + lst + ".lst").split('\n')
+    return getFileText("assets/data/" + lst + ".lst").split('\n')
 }
 
 function getLstId(lst: string, id: number): string|null {
@@ -221,7 +221,7 @@ function parseMapInfo() {
     
     // parse map info from data/data/maps.txt
     mapInfo = {}
-    const text = getFileText("data/data/maps.txt")
+    const text = getFileText("assets/data/data/maps.txt")
     const ini = parseIni(text)
     for(var category in ini) {
         const m = category.match(/Map (\d+)/);
