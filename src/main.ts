@@ -10,8 +10,7 @@
  */
 
 import Phaser from 'phaser'
-import { PreloadScene } from './scenes/PreloadScene'
-import { GameScene }    from './scenes/GameScene'
+import { LocationScene } from './scenes/LocationScene'
 
 const SCREEN_WIDTH  = 800
 const SCREEN_HEIGHT = 600
@@ -21,7 +20,7 @@ new Phaser.Game({
   width:  SCREEN_WIDTH,
   height: SCREEN_HEIGHT,
   backgroundColor: '#1a1008',
-  scene:  [PreloadScene, GameScene],
+  scene:  [LocationScene],
   scale: {
     mode:            Phaser.Scale.FIT,
     autoCenter:      Phaser.Scale.CENTER_BOTH,
