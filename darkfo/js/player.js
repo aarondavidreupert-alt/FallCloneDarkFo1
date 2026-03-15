@@ -30,7 +30,9 @@ var Player = (function (_super) {
         var _lh = createObjectWithPID(9);
         if (!_lh) console.warn("Player: could not load leftHand (pid=9) -- items.lst may be missing or out of order");
         _this.leftHand = _lh || null;
-        _this.inventory = [createObjectWithPID(41).setAmount(1337)];
+        var _inv = createObjectWithPID(41);
+        if (!_inv) console.warn("Player: could not load inventory item (pid=41)");
+        _this.inventory = _inv ? [_inv.setAmount(1337)] : [];
         _this.lightRadius = 4;
         _this.lightIntensity = 65536;
         return _this;

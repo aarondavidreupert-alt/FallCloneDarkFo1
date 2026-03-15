@@ -219,7 +219,7 @@ def _get_critter_art_path(frm_pid: int, critter_lst: List[str]) -> str:
 def _parse_object(f, lst: Dict[str, List[str]]) -> Dict[str, Any]:
     f.read(4)                     # separator / unknown
     position      = _r32(f)       # signed: -1 means no tile position
-    f.read(4 * 4)                 # 4 unknown uint32s
+    f.read(4 * 2)                 # 2 unknown uint32s
     _frame_num    = _ru32(f)
     orientation   = _ru32(f)
     frm_pid       = _ru32(f)

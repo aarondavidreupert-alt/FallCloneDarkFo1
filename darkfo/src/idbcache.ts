@@ -38,12 +38,15 @@ module IDBCache {
     }
 
     export function init(callback?: () => void): void {
-        const request = indexedDB.open("darkfo-cache", 1);
+        const request = indexedDB.open("darkfo-cache", 2);
 
-        request.onupgradeneeded = function() {
+        request.onupgradeneeded = function(event) {
             const db = request.result;
-            const store = db.createObjectStore("cache", {keyPath: "key"});
-            // store.createIndex("key", "key", {unique: true});
+            // Delete existing store on upgrade so stale proMap/imageMap data
+            // is not served after asset regeneration.  Bump version to clear.
+            if (db.objectStoreNames.contains("cache"))
+                db.deleteObjectStore("cache");
+            db.createObjectStore("cache", {keyPath: "key"});
         };
 
         request.onsuccess = function() {
