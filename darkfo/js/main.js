@@ -153,7 +153,7 @@ function initGame() {
             gMap.loadMap(location.search.slice(1));
     }
     else
-        gMap.loadMap("artemple");
+        gMap.loadMap("vault13");
     if (Config.engine.doCombat === true)
         CriticalEffects.loadTable();
     document.oncontextmenu = function () { return false; };
