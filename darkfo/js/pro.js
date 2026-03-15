@@ -4,8 +4,7 @@ function getPROType(pid) {
     return map[(pid >> 24) & 0xff];
 }
 function loadPRO(pid, pidID) {
-    if (!proMap)
-        return null;
+    if (!proMap) return null;
     var type = getPROType(pid);
     if (!type) { console.warn("Unknown PRO type for pid:", pid); return null; }
     return proMap[type][pidID];
