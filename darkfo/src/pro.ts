@@ -25,15 +25,8 @@ function loadPRO(pid: number, pidID: number) {
     if(!proMap)
         return null
 
-    // use the proto/ .lst files to look up type/pid
     const type = getPROType(pid)
-    const lsts: { [lst: string]: string } = {
-                "items": "proto/items/items", "critters": "proto/critters/critters",
-                "scenery": "proto/scenery/scenery", "misc": "proto/misc/misc",
-                "walls": "proto/walls/walls"}
-    const id = lsts[type] ? parseInt(getLstId(lsts[type], pidID - 1).split(".")[0], 10) : pidID
-
-    return proMap[type][id]
+    return proMap[type][pidID]
 }
 
 function getPROTypeName(type: number) {

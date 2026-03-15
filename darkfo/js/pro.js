@@ -7,13 +7,7 @@ function loadPRO(pid, pidID) {
     if (!proMap)
         return null;
     var type = getPROType(pid);
-    var lsts = {
-        "items": "proto/items/items", "critters": "proto/critters/critters",
-        "scenery": "proto/scenery/scenery", "misc": "proto/misc/misc",
-        "walls": "proto/walls/walls"
-    };
-    var id = lsts[type] ? parseInt(getLstId(lsts[type], pidID - 1).split(".")[0], 10) : pidID;
-    return proMap[type][id];
+    return proMap[type][pidID];
 }
 function getPROTypeName(type) {
     var map = { 0: 'item', 1: 'critter', 2: 'scenery', 3: 'wall', 4: 'tile', 5: 'misc' };
