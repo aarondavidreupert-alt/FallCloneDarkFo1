@@ -4,7 +4,8 @@ convert_all.py — Master asset pipeline for FallClone.
 
 Runs the full conversion pipeline in the correct order:
 
-  0. copy_lst    — raw_assets/**/*.lst → public/assets/data/**/*.lst  (sorted copy)
+  0. copy_raw    — raw_assets/**/*.lst → public/assets/data/**/*.lst  (sorted copy)
+              — raw_assets/scripts/*.int → public/assets/data/scripts/
   1. extract_dat — MASTER.DAT + CRITTER.DAT → data/        (skippable)
   2. pal_to_json — color.pal → public/assets/data/color.json
   3. frm_to_png  — art/**/*.frm → public/assets/art/**/*.png + imageMap.json
@@ -26,7 +27,8 @@ Options:
     --data-dir DIR    Where to find/place extracted raw data  [raw_assets/]
     --out-dir  DIR    Web asset output root                    [public/assets]
     --jobs N          Parallel workers for images/maps/audio  [4]
-    --skip-lst        Skip .lst copy step (sorted copy to public/assets/data/)
+    --skip-lst        Skip .lst copy (sorted copy to public/assets/data/)
+    --skip-scripts    Skip .int copy (scripts/ → public/assets/data/scripts/)
     --skip-extract    Skip DAT extraction (data/ already exists)
     --skip-images     Skip FRM → PNG conversion
     --skip-maps       Skip MAP → JSON conversion
@@ -49,6 +51,7 @@ Examples:
 """
 
 import re
+import shutil
 import sys
 import os
 import argparse
@@ -110,6 +113,36 @@ def _run_lst(data_dir: str, out_dir: str) -> int:
     return count
 
 
+def _run_scripts(data_dir: str, out_dir: str) -> int:
+    """
+    Copy compiled Fallout script bytecode (.int) files into out_dir/data/scripts/.
+
+    Source:      data_dir/scripts/*.int   (DAT extractor preserves this layout)
+    Destination: out_dir/data/scripts/    (DarkFO reads from assets/data/scripts/)
+
+    Note: scripts/scripts.lst is already handled by _run_lst(), which walks
+    all of data_dir recursively for .lst files.
+
+    Returns the number of .int files copied, or 0 with a warning if the source
+    directory does not exist.
+    """
+    src_dir = os.path.join(data_dir, "scripts")
+    dst_dir = os.path.join(out_dir, "data", "scripts")
+
+    if not os.path.isdir(src_dir):
+        print(f"  WARNING: scripts source dir not found ({src_dir}), skipping .int copy.")
+        return 0
+
+    os.makedirs(dst_dir, exist_ok=True)
+    count = 0
+    for fname in sorted(os.listdir(src_dir)):
+        if fname.lower().endswith(".int"):
+            shutil.copy2(os.path.join(src_dir, fname), os.path.join(dst_dir, fname))
+            count += 1
+
+    return count
+
+
 def _step(label: str) -> None:
     print(f"\n{'='*60}")
     print(f"  {label}")
@@ -128,7 +161,9 @@ def main() -> None:
                     help="Web asset output root [public/assets]")
     ap.add_argument("--jobs",         type=int, default=4)
     ap.add_argument("--skip-lst",     action="store_true",
-                    help="Skip copying .lst index files to public/assets/")
+                    help="Skip copying .lst index files to public/assets/data/")
+    ap.add_argument("--skip-scripts", action="store_true",
+                    help="Skip copying .int script bytecode to public/assets/data/scripts/")
     ap.add_argument("--skip-extract", action="store_true",
                     help="Skip DAT extraction (data/ already exists)")
     ap.add_argument("--skip-images",  action="store_true")
@@ -168,16 +203,25 @@ def main() -> None:
 
     t_start = time.perf_counter()
 
-    # ── Step 0: Copy .lst index files ────────────────────────────────────────
-    if not args.skip_lst:
-        _step("Step 0/7 — Copying .lst index files → public/assets/")
-        if os.path.isdir(data_dir):
-            n = _run_lst(data_dir, out_dir)
-            print(f"  Copied {n} .lst file(s).")
+    # ── Step 0: Copy raw index/script files ──────────────────────────────────
+    # Both steps require data_dir to be populated (run after extraction, or use
+    # --skip-extract when raw_assets/ is already present).
+    _step("Step 0/7 — Copying raw assets (.lst + .int) → public/assets/data/")
+
+    if os.path.isdir(data_dir):
+        if not args.skip_lst:
+            n_lst = _run_lst(data_dir, out_dir)
+            print(f"  Copied {n_lst} .lst file(s).")
         else:
-            print(f"  WARNING: data dir not found ({data_dir}), skipping .lst copy.")
+            print("  .lst copy SKIPPED (--skip-lst)")
+
+        if not args.skip_scripts:
+            n_int = _run_scripts(data_dir, out_dir)
+            print(f"  Copied {n_int} .int script file(s).")
+        else:
+            print("  .int copy SKIPPED (--skip-scripts)")
     else:
-        print("\nStep 0/7 — .lst copy SKIPPED")
+        print(f"  WARNING: data dir not found ({data_dir}), skipping step 0.")
 
     # ── Step 1: Extract DATs ──────────────────────────────────────────────────
     if not args.skip_extract:
