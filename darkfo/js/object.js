@@ -322,6 +322,10 @@ var Obj = (function () {
         var pidType = (pid >> 24) & 0xff;
         var pidID = pid & 0xffff;
         var pro = loadPRO(pid, pidID);
+        if (pro === null || pro === undefined) {
+            console.error("loadPRO returned null for pid=" + pid + " (type=" + pidType + ", id=" + pidID + ") -- items.lst may be missing or out of order");
+            return null;
+        }
         obj.type = getPROTypeName(pidType);
         obj.pid = pid;
         obj.pro = pro;
@@ -550,7 +554,14 @@ var Item = (function (_super) {
         _this.type = "item";
         return _this;
     }
-    Item.fromPID = function (pid, sid) { return Obj.fromPID_(new Item(), pid, sid); };
+    Item.fromPID = function (pid, sid) {
+        var obj = Obj.fromPID_(new Item(), pid, sid);
+        if (obj === null) {
+            console.error("Item.fromPID: failed for pid=" + pid);
+            return null;
+        }
+        return obj;
+    };
     Item.fromMapObject = function (mobj, deserializing) {
         if (deserializing === void 0) { deserializing = false; }
         return Obj.fromMapObject_(new Item(), mobj, deserializing);
@@ -631,8 +642,11 @@ function createObjectWithPID(pid, sid) {
         var pro = loadPRO(pid, pid & 0xffff);
         if (pro && pro.extra && pro.extra.subType == 3)
             return WeaponObj.fromPID(pid, sid);
-        else
-            return Item.fromPID(pid, sid);
+        else {
+            var item = Item.fromPID(pid, sid);
+            if (!item) { console.error("createObjectWithPID: Item.fromPID returned null for pid=" + pid); return null; }
+            return item;
+        }
     }
     else if (pidType == 2) {
         var pro = loadPRO(pid, pid & 0xffff);
