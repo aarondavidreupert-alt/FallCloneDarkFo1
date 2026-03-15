@@ -4,13 +4,14 @@ convert_all.py — Master asset pipeline for FallClone.
 
 Runs the full conversion pipeline in the correct order:
 
-  1. extract_dat   — MASTER.DAT + CRITTER.DAT → data/        (skippable)
-  2. pal_to_json   — color.pal → public/assets/data/color.json
-  3. frm_to_png    — art/**/*.frm → public/assets/art/**/*.png + imageMap.json
-  4. map_to_json   — maps/*.map  → public/assets/maps/*.json
-  5. pro_to_json   — proto/**/*.pro → public/assets/proto/pro.json
-  6. msg_to_json   — text/english/**/*.msg → public/assets/data/text/.../*.json
-  7. acm_to_mp3    — sound/**/*.acm → public/assets/sound/**/*.mp3
+  0. copy_lst    — raw_assets/**/*.lst → public/assets/**/*.lst  (as-is copy)
+  1. extract_dat — MASTER.DAT + CRITTER.DAT → data/        (skippable)
+  2. pal_to_json — color.pal → public/assets/data/color.json
+  3. frm_to_png  — art/**/*.frm → public/assets/art/**/*.png + imageMap.json
+  4. map_to_json — maps/*.map  → public/assets/maps/*.json
+  5. pro_to_json — proto/**/*.pro → public/assets/proto/pro.json
+  6. msg_to_json — text/english/**/*.msg → public/assets/data/text/.../*.json
+  7. acm_to_mp3  — sound/**/*.acm → public/assets/sound/**/*.mp3
 
 Based on Harold's darkfo reference scripts (Python 3.9+ rewrite).
 
@@ -25,6 +26,7 @@ Options:
     --data-dir DIR    Where to find/place extracted raw data  [raw_assets/]
     --out-dir  DIR    Web asset output root                    [public/assets]
     --jobs N          Parallel workers for images/maps/audio  [4]
+    --skip-lst        Skip .lst copy step
     --skip-extract    Skip DAT extraction (data/ already exists)
     --skip-images     Skip FRM → PNG conversion
     --skip-maps       Skip MAP → JSON conversion
@@ -48,10 +50,37 @@ Examples:
 
 import sys
 import os
+import shutil
 import argparse
 import time
 
 sys.path.insert(0, os.path.dirname(__file__))
+
+
+def _run_lst(data_dir: str, out_dir: str) -> int:
+    """
+    Copy every .lst file from data_dir to the same relative path under out_dir.
+
+    Example:
+        raw_assets/art/critters/critters.lst
+            → public/assets/art/critters/critters.lst
+        raw_assets/proto/items/items.lst
+            → public/assets/proto/items/items.lst
+
+    Returns the number of files copied.
+    """
+    count = 0
+    for dirpath, _dirnames, filenames in os.walk(data_dir):
+        for fname in filenames:
+            if fname.lower().endswith(".lst"):
+                src = os.path.join(dirpath, fname)
+                rel = os.path.relpath(src, data_dir)
+                dst = os.path.join(out_dir, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(src, dst)
+                print(f"  {rel}")
+                count += 1
+    return count
 
 
 def _step(label: str) -> None:
@@ -71,6 +100,8 @@ def main() -> None:
     ap.add_argument("--out-dir",      default=os.path.join("public", "assets"),
                     help="Web asset output root [public/assets]")
     ap.add_argument("--jobs",         type=int, default=4)
+    ap.add_argument("--skip-lst",     action="store_true",
+                    help="Skip copying .lst index files to public/assets/")
     ap.add_argument("--skip-extract", action="store_true",
                     help="Skip DAT extraction (data/ already exists)")
     ap.add_argument("--skip-images",  action="store_true")
@@ -109,6 +140,17 @@ def main() -> None:
     print(f"  Mode        : {'Fallout 2 (FO2)' if args.fo2 else 'Fallout 1 (FO1)'}")
 
     t_start = time.perf_counter()
+
+    # ── Step 0: Copy .lst index files ────────────────────────────────────────
+    if not args.skip_lst:
+        _step("Step 0/7 — Copying .lst index files → public/assets/")
+        if os.path.isdir(data_dir):
+            n = _run_lst(data_dir, out_dir)
+            print(f"  Copied {n} .lst file(s).")
+        else:
+            print(f"  WARNING: data dir not found ({data_dir}), skipping .lst copy.")
+    else:
+        print("\nStep 0/7 — .lst copy SKIPPED")
 
     # ── Step 1: Extract DATs ──────────────────────────────────────────────────
     if not args.skip_extract:
