@@ -443,12 +443,16 @@ class Obj {
         return Obj.fromPID_(new Obj(), pid, sid)
     }
 
-    static fromPID_<T extends Obj>(obj: T, pid: number, sid?: number): T {
+    static fromPID_<T extends Obj>(obj: T, pid: number, sid?: number): T | null {
         console.log(`fromPID: pid=${pid}, sid=${sid}`)
         var pidType = (pid >> 24) & 0xff
         var pidID = pid & 0xffff
 
         var pro: any = loadPRO(pid, pidID) // TODO: any
+        if (pro === null || pro === undefined) {
+            console.error(`loadPRO returned null for pid=${pid} (type=${pidType}, id=${pidID}) -- items.lst may be missing or out of order`)
+            return null
+        }
         obj.type = getPROTypeName(pidType)
         obj.pid = pid
         obj.pro = pro
@@ -729,7 +733,11 @@ class Obj {
 class Item extends Obj {
     type = "item";
 
-    static fromPID(pid: number, sid?: number): Item { return Obj.fromPID_(new Item(), pid, sid) }
+    static fromPID(pid: number, sid?: number): Item | null {
+        const obj = Obj.fromPID_(new Item(), pid, sid)
+        if (obj === null) { console.error(`Item.fromPID: failed for pid=${pid}`); return null }
+        return obj
+    }
 
     static fromMapObject(mobj: any, deserializing: boolean=false): Item {
         return Obj.fromMapObject_(new Item(), mobj, deserializing)
@@ -813,8 +821,11 @@ function createObjectWithPID(pid: number, sid?: number) {
         var pro = loadPRO(pid, pid & 0xffff)
         if(pro && pro.extra && pro.extra.subType == 3)
             return WeaponObj.fromPID(pid, sid)
-        else
-            return Item.fromPID(pid, sid)
+        else {
+            const item = Item.fromPID(pid, sid)
+            if (!item) { console.error(`createObjectWithPID: Item.fromPID returned null for pid=${pid}`); return null }
+            return item
+        }
     }
     else if(pidType == 2) { // scenery
         var pro = loadPRO(pid, pid & 0xffff)

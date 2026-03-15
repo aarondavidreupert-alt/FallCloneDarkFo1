@@ -4,7 +4,7 @@ convert_all.py — Master asset pipeline for FallClone.
 
 Runs the full conversion pipeline in the correct order:
 
-  0. copy_lst    — raw_assets/**/*.lst → public/assets/**/*.lst  (as-is copy)
+  0. copy_lst    — raw_assets/**/*.lst → public/assets/data/**/*.lst  (sorted copy)
   1. extract_dat — MASTER.DAT + CRITTER.DAT → data/        (skippable)
   2. pal_to_json — color.pal → public/assets/data/color.json
   3. frm_to_png  — art/**/*.frm → public/assets/art/**/*.png + imageMap.json
@@ -26,7 +26,7 @@ Options:
     --data-dir DIR    Where to find/place extracted raw data  [raw_assets/]
     --out-dir  DIR    Web asset output root                    [public/assets]
     --jobs N          Parallel workers for images/maps/audio  [4]
-    --skip-lst        Skip .lst copy step
+    --skip-lst        Skip .lst copy step (sorted copy to public/assets/data/)
     --skip-extract    Skip DAT extraction (data/ already exists)
     --skip-images     Skip FRM → PNG conversion
     --skip-maps       Skip MAP → JSON conversion
@@ -48,24 +48,38 @@ Examples:
     python convert_all.py "C:/GOG Games/Fallout2" --fo2
 """
 
+import re
 import sys
 import os
-import shutil
 import argparse
 import time
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 
+# Matches lines whose first token is a numeric filename, e.g. "00000009.pro"
+_NUM_LST_LINE = re.compile(r"^(\d+)\.", re.IGNORECASE)
+
+
+def _num_lst_key(line: str) -> tuple[int, int]:
+    """Sort key: numeric-filename lines first (by value), others last."""
+    m = _NUM_LST_LINE.match(line.strip())
+    return (0, int(m.group(1))) if m else (1, 0)
+
+
 def _run_lst(data_dir: str, out_dir: str) -> int:
     """
-    Copy every .lst file from data_dir to the same relative path under out_dir.
+    Copy every .lst file from data_dir into out_dir/data/{rel}.
 
-    Example:
-        raw_assets/art/critters/critters.lst
-            → public/assets/art/critters/critters.lst
-        raw_assets/proto/items/items.lst
-            → public/assets/proto/items/items.lst
+    DarkFO's loadLst() prepends "assets/data/" to the lst name, so all .lst
+    files must live under public/assets/data/ — NOT public/assets/ directly.
+
+      raw_assets/proto/items/items.lst  → public/assets/data/proto/items/items.lst
+      raw_assets/art/critters/critters.lst → public/assets/data/art/critters/critters.lst
+
+    Lines that look like numbered filenames (e.g. "00000009.pro") are sorted
+    numerically so getLstId(lst, pidID-1) returns the correct entry for each
+    proto/art ID regardless of the order they were stored in the DAT archive.
 
     Returns the number of files copied.
     """
@@ -75,9 +89,22 @@ def _run_lst(data_dir: str, out_dir: str) -> int:
             if fname.lower().endswith(".lst"):
                 src = os.path.join(dirpath, fname)
                 rel = os.path.relpath(src, data_dir)
-                dst = os.path.join(out_dir, rel)
+                # Place under out_dir/data/ so DarkFO's loadLst() can find it
+                dst = os.path.join(out_dir, "data", rel)
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy2(src, dst)
+
+                with open(src, "r", encoding="latin-1") as f:
+                    lines = f.read().splitlines()
+
+                # Sort numerically if any line looks like a numbered filename
+                if any(_NUM_LST_LINE.match(l.strip()) for l in lines):
+                    lines = sorted(lines, key=_num_lst_key)
+
+                with open(dst, "w", encoding="latin-1", newline="\n") as f:
+                    f.write("\n".join(lines))
+                    if lines:
+                        f.write("\n")
+
                 print(f"  {rel}")
                 count += 1
     return count

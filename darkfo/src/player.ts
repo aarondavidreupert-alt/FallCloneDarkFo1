@@ -30,7 +30,11 @@ class Player extends Critter {
     position = {x: 94, y: 109}
     orientation = 3
     gender = "male"
-    leftHand = <WeaponObj>createObjectWithPID(9)
+    leftHand = (() => {
+        const lh = createObjectWithPID(9)
+        if (!lh) console.warn("Player: could not load leftHand (pid=9) -- items.lst may be missing or out of order")
+        return lh || null
+    })()
 
     inventory = [createObjectWithPID(41).setAmount(1337)]
 
