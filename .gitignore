@@ -2,7 +2,18 @@ node_modules/
 dist/
 *.local
 
-# Fallout 1 raw assets — LOCAL ONLY, never commit
+# Fallout raw assets — LOCAL ONLY, never commit
+# raw_assets/ holds the full DAT extraction (FRM, MAP, PRO, LST, MSG, ACM, ...)
+# Run: python scripts/convert_all.py <FALLOUT_DIR>   to populate it.
+# Expected .lst files after extraction:
+#   art/tiles/tiles.lst          art/critters/critters.lst
+#   art/items/items.lst          art/scenery/scenery.lst
+#   art/walls/walls.lst          art/misc/misc.lst
+#   proto/items/items.lst        proto/critters/critters.lst
+#   proto/scenery/scenery.lst    proto/walls/walls.lst
+#   scripts/scripts.lst
+raw_assets/*
+!raw_assets/.gitkeep
 public/assets/art/
 public/assets/sound/
 public/assets/proto/

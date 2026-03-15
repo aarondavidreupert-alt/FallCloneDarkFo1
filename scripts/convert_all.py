@@ -22,7 +22,7 @@ Usage:
                    or an already-extracted data/ subdirectory)
 
 Options:
-    --data-dir DIR    Where to find/place extracted raw data  [FALLOUT_DIR/data]
+    --data-dir DIR    Where to find/place extracted raw data  [raw_assets/]
     --out-dir  DIR    Web asset output root                    [public/assets]
     --jobs N          Parallel workers for images/maps/audio  [4]
     --skip-extract    Skip DAT extraction (data/ already exists)
@@ -67,7 +67,7 @@ def main() -> None:
     ap.add_argument("fallout_dir",
                     help="Fallout installation directory (contains MASTER.DAT etc.)")
     ap.add_argument("--data-dir",     default=None,
-                    help="Extracted data directory [FALLOUT_DIR/data]")
+                    help="Extracted data directory [raw_assets/]")
     ap.add_argument("--out-dir",      default=os.path.join("public", "assets"),
                     help="Web asset output root [public/assets]")
     ap.add_argument("--jobs",         type=int, default=4)
@@ -85,7 +85,16 @@ def main() -> None:
     args = ap.parse_args()
 
     fallout_dir = os.path.abspath(args.fallout_dir)
-    data_dir    = os.path.abspath(args.data_dir or os.path.join(fallout_dir, "data"))
+    # Default extraction target is raw_assets/ inside the project directory.
+    # This keeps all local Fallout data in one gitignored folder rather than
+    # writing outside the project tree.  raw_assets/ mirrors the DAT layout:
+    #   art/tiles/tiles.lst, art/critters/critters.lst,
+    #   proto/items/items.lst, proto/scenery/scenery.lst,
+    #   proto/critters/critters.lst, proto/walls/walls.lst,
+    #   scripts/scripts.lst, art/items/items.lst, art/walls/walls.lst,
+    #   art/misc/misc.lst, art/scenery/scenery.lst, ...
+    _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    data_dir    = os.path.abspath(args.data_dir or os.path.join(_project_root, "raw_assets"))
     out_dir     = os.path.abspath(args.out_dir)
     art_dir     = os.path.join(out_dir, "art")
     maps_dir    = os.path.join(out_dir, "maps")
