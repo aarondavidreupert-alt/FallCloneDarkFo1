@@ -118,8 +118,8 @@ def _parse_map_scripts(f, script_lst: List[str]) -> Dict[str, Any]:
                 pid_id = pid & 0xFFFF
 
                 if i < count:
-                    if pt == 1 and spatial_range is not None:
-                        if spatial_range <= 50 and script_id < len(script_lst):
+                    if (pt == 1 and spatial_range is not None
+                            and spatial_range <= 50 and script_id < len(script_lst)):
                             script_name = _strip_ext(script_lst[script_id].split()[0])
                             spatials.append({
                                 "tileNum":   tile_num & 0xFFFF,
