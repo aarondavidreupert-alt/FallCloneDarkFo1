@@ -64,24 +64,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 _NUM_LST_LINE = re.compile(r"^(\d+)\.", re.IGNORECASE)
 
 
-def _data_root(data_dir: str) -> str:
-    """
-    Return the effective asset root within a DAT extraction directory.
-
-    Fallout 2 DAT2 archives store all files under a 'data/' prefix
-    (e.g. data/scripts/vault13.int), so the extractor produces:
-        raw_assets/data/scripts/vault13.int
-
-    Fallout 1 DAT1 archives store files without that prefix:
-        raw_assets/scripts/vault13.int
-
-    If data_dir/data/ exists we use it as the root so downstream code never
-    produces double-nested paths like public/assets/data/data/scripts/.
-    """
-    nested = os.path.join(data_dir, "data")
-    return nested if os.path.isdir(nested) else data_dir
-
-
 def _num_lst_key(line: str) -> tuple[int, int]:
     """Sort key: numeric-filename lines first (by value), others last."""
     m = _NUM_LST_LINE.match(line.strip())
@@ -98,16 +80,13 @@ def _run_lst(data_dir: str, out_dir: str) -> int:
       raw_assets/proto/items/items.lst  → public/assets/data/proto/items/items.lst
       raw_assets/art/critters/critters.lst → public/assets/data/art/critters/critters.lst
 
-    Uses _data_root() to avoid double-nesting when FO2 DATs add their own
-    data/ prefix (raw_assets/data/scripts/scripts.lst → assets/data/scripts/).
-
     Lines that look like numbered filenames (e.g. "00000009.pro") are sorted
     numerically so getLstId(lst, pidID-1) returns the correct entry for each
     proto/art ID regardless of the order they were stored in the DAT archive.
 
     Returns the number of files copied.
     """
-    root = _data_root(data_dir)
+    root = data_dir
     count = 0
     for dirpath, _dirnames, filenames in os.walk(root):
         for fname in filenames:
@@ -139,17 +118,16 @@ def _run_scripts(data_dir: str, out_dir: str) -> int:
     """
     Copy compiled Fallout script bytecode (.int) files into out_dir/data/scripts/.
 
-    Source:      data_dir/scripts/*.int  — or data_dir/data/scripts/ for FO2
-                 (_data_root handles the FO2 data/ nesting automatically)
+    Source:      data_dir/scripts/*.int
     Destination: out_dir/data/scripts/   (DarkFO reads from assets/data/scripts/)
 
     Note: scripts/scripts.lst is already handled by _run_lst(), which walks
-    the same root recursively for .lst files.
+    data_dir recursively for .lst files.
 
     Returns the number of .int files copied, or 0 with a warning if the source
     directory does not exist.
     """
-    src_dir = os.path.join(_data_root(data_dir), "scripts")
+    src_dir = os.path.join(data_dir, "scripts")
     dst_dir = os.path.join(out_dir, "data", "scripts")
 
     if not os.path.isdir(src_dir):
