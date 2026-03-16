@@ -9,8 +9,8 @@ Bugs fixed vs. our previous Python 3 port:
   1. ENDIANNESS — all struct reads now use "!" (big-endian / network order),
      matching both Harold's reference and the Fallout binary format.
      The previous port incorrectly used "<" (little-endian) everywhere.
-  2. id3 bitmask in _get_critter_art_path: 0x70000 → 0x70000000
-  3. map_pid sentinel in _parse_object: 0xFFFF → 0xFFFFFFFF
+  2. id3 bitmask in _get_critter_art_path: 0x70000 → 0x70000
+  3. map_pid sentinel in _parse_object: 0xFFFF → 0xFFFF
   4. Added missing id2==0x12 and id2==0x0d guard cases in critter art path
 
 Output JSON structure is unchanged (header, levels[].tiles/spatials/objects,
@@ -23,7 +23,7 @@ import json
 from typing import Dict, Any, List, Optional, Tuple
 
 
-# ── Module-level state (mirrors Harold's globals) ─────────────────────────────
+# ── Module-level state (mirrors Harold's globals) ────
 
 _FO1_MODE: bool = False
 
@@ -32,7 +32,7 @@ SCRIPT_TYPES = ["s_system", "s_spatial", "s_time", "s_item", "s_critter"]
 _map_script_pids: List[Dict[int, str]] = [{} for _ in range(5)]
 
 
-# ── Binary readers — BIG-ENDIAN ("!"), matching Harold's fomap.py ─────────────
+# ── Binary readers — BIG-ENDIAN ("!"), matching Harold's fomap.py ────
 
 def _r16(f)  -> int: return struct.unpack("!h", f.read(2))[0]   # signed
 def _ru16(f) -> int: return struct.unpack("!H", f.read(2))[0]   # unsigned
@@ -40,7 +40,7 @@ def _r32(f)  -> int: return struct.unpack("!l", f.read(4))[0]   # signed
 def _ru32(f) -> int: return struct.unpack("!L", f.read(4))[0]   # unsigned
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers ────
 
 def _strip_ext(path: str) -> str:
     return os.path.splitext(path)[0]
@@ -60,7 +60,7 @@ def _blank_tile_map() -> List[List[int]]:
     return [[0] * 100 for _ in range(100)]
 
 
-# ── Tile parsing ──────────────────────────────────────────────────────────────
+# ── Tile parsing ────
 
 def _parse_tiles(f, num_levels: int) -> Tuple[List, List]:
     """
@@ -80,7 +80,7 @@ def _parse_tiles(f, num_levels: int) -> Tuple[List, List]:
     return floor, roof
 
 
-# ── Script / spatial parsing ──────────────────────────────────────────────────
+# ── Script / spatial parsing ────
 
 def _parse_map_scripts(f, script_lst: List[str]) -> Dict[str, Any]:
     global _map_script_pids
@@ -120,14 +120,14 @@ def _parse_map_scripts(f, script_lst: List[str]) -> Dict[str, Any]:
                 if i < count:
                     if (pt == 1 and spatial_range is not None
                             and spatial_range <= 50 and script_id < len(script_lst)):
-                            script_name = _strip_ext(script_lst[script_id].split()[0])
-                            spatials.append({
-                                "tileNum":   tile_num & 0xFFFF,
-                                "elevation": ((tile_num >> 28) & 0xF) >> 1,
-                                "range":     spatial_range,
-                                "scriptID":  script_id,
-                                "script":    script_name,
-                            })
+                        script_name = _strip_ext(script_lst[script_id].split()[0])
+                        spatials.append({
+                            "tileNum":   tile_num & 0xFFFF,
+                            "elevation": ((tile_num >> 28) & 0xF) >> 1,
+                            "range":     spatial_range,
+                            "scriptID":  script_id,
+                            "script":    script_name,
+                        })
 
                     if 0 < script_id < len(script_lst):
                         name = _strip_ext(script_lst[script_id]).split()[0]
@@ -145,7 +145,7 @@ def _parse_map_scripts(f, script_lst: List[str]) -> Dict[str, Any]:
     return {"count": total, "spatials": spatials}
 
 
-# ── Object parsing ────────────────────────────────────────────────────────────
+# ── Object parsing ────
 
 def _parse_item_obj(f, frm_pid: int, proto_pid: int,
                     items_lst: List[str]) -> Dict:
@@ -172,13 +172,13 @@ def _get_critter_art_path(frm_pid: int, critter_lst: List[str]) -> str:
     Ported exactly from Harold's fomap.getCritterArtPath().
 
     Bugs fixed vs previous port:
-      - id3 mask was 0x70000 (wrong); corrected to 0x70000000
+      - id3 mask was 0x70000 (wrong); corrected to 0x70000
       - Added id2==0x12 and id2==0x0d guard cases (omitted before)
     """
-    idx = frm_pid & 0x00000FFF
+    idx = frm_pid & 0x0000FFF
     id1 = (frm_pid & 0x0000F000) >> 12
     id2 = (frm_pid & 0x00FF0000) >> 16
-    id3 = (frm_pid & 0x70000000) >> 28   # was 0x70000 — wrong mask, now fixed
+    id3 = (frm_pid & 0x70000000) >> 28
 
     if id2 in (0x1B, 0x1D, 0x1E, 0x37, 0x39, 0x3A, 0x21, 0x40):
         raise ValueError("reindex")
@@ -207,7 +207,7 @@ def _get_critter_art_path(frm_pid: int, critter_lst: List[str]) -> str:
 
 
 def _parse_object(f, lst: Dict[str, List[str]]) -> Dict[str, Any]:
-    f.read(4)                     # separator / unknown
+    f.read(4)                    # separator / unknown
     position      = _r32(f)       # signed: -1 means no tile position
     f.read(4 * 2)                 # 2 unknown uint32s
     _frame_num    = _ru32(f)
@@ -217,10 +217,10 @@ def _parse_object(f, lst: Dict[str, List[str]]) -> Dict[str, Any]:
     _elevation    = _ru32(f)
     proto_pid     = _ru32(f)
     obj_type      = (proto_pid >> 24) & 0xFF
-    f.read(4)                     # unknown
+    f.read(4)                    # unknown
     light_radius  = _ru32(f)
     light_intens  = _ru32(f)
-    f.read(4)                     # unknown
+    f.read(4)                    # unknown
     map_pid       = _ru32(f)
     script_id     = _r32(f)       # signed (-1 = no script)
     num_inv       = _ru32(f)
@@ -315,7 +315,7 @@ def _parse_object(f, lst: Dict[str, List[str]]) -> Dict[str, Any]:
 
     if script_id != -1 and script_id < len(lst["scripts"]):
         obj["script"] = _strip_ext(lst["scripts"][script_id].split()[0])
-    elif script_id == -1 and map_pid != 0xFFFFFFFF:   # was 0xFFFF — wrong sentinel
+    elif script_id == -1 and map_pid != 0xFFFF:   # was 0xFFFF — wrong sentinel
         s_type = (map_pid >> 24) & 0xFF
         s_pid  = map_pid & 0xFFFF
         if s_pid in _map_script_pids[s_type]:
@@ -330,12 +330,12 @@ def _parse_level_objects(f, lst: Dict[str, List[str]]) -> List[Dict]:
 
 
 def _parse_map_objects(f, num_levels: int,
-                       lst: Dict[str, List[str]]) -> List[List[Dict]]:
+                    lst: Dict[str, List[str]]) -> List[List[Dict]]:
     _ru32(f)  # total object count across all levels (not needed per-level)
     return [_parse_level_objects(f, lst) for _ in range(num_levels)]
 
 
-# ── LST file reader ───────────────────────────────────────────────────────────
+# ── LST file reader ────
 
 def _read_lst(data_dir: str, rel_path: str) -> List[str]:
     """Read a Fallout .lst index file, returning a list of stripped strings."""
@@ -343,7 +343,7 @@ def _read_lst(data_dir: str, rel_path: str) -> List[str]:
         return [line.decode("latin-1").rstrip() for line in f]
 
 
-# ── Top-level MAP parser ──────────────────────────────────────────────────────
+# ── Top-level MAP parser ────
 
 def parse_map(f, lst: Dict[str, List[str]]) -> Dict[str, Any]:
     global _FO1_MODE
@@ -367,10 +367,10 @@ def parse_map(f, lst: Dict[str, List[str]]) -> Dict[str, Any]:
     _map_script_id  = _r32(f)
     elev_flags      = _r32(f)
     num_levels      = _num_levels(elev_flags)
-    _r32(f)                         # unk1
+    _r32(f)                    # unk1
     num_global_vars = _r32(f)
     map_id          = _r32(f)
-    _ru32(f)                        # time
+    _ru32(f)                    # time
     f.read(4 * 44)                  # unknown padding
 
     [_r32(f) for _ in range(num_global_vars)]
@@ -421,7 +421,7 @@ def get_image_list(map_data: Dict[str, Any]) -> List[str]:
     return sorted(images)
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ── Public API ────
 
 def export_map(data_dir: str, map_file: str, out_file: str,
                verbose: bool = False) -> None:
