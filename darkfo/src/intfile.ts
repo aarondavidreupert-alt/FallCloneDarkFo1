@@ -47,12 +47,9 @@ function parseIntFile(reader: BinaryReader, name: string=""): IntFile {
     for(var i = 0; i < numProcs; i++) {
         var nameIndex = reader.read32()
         var flags = reader.read32()
-        //console.log("name index: %d", nameIndex)
-        //console.log("flags: %d", flags)
-        assertEq(reader.read32(), 0, "unk0 != 0")
-        assertEq(reader.read32(), 0, "unk1 != 0")
-        var offset = reader.read32()
-        //console.log("offset: %d", offset)
+        var time = reader.read32()   // timed delay field, not always 0
+        var offset = reader.read32() // procedure bytecode offset
+        var unk = reader.read32()    // unknown, skip
         var argc = reader.read32()
         //console.log("argc: %d", argc)
         //console.log("")
