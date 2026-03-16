@@ -26,7 +26,6 @@ from typing import Dict, Any, List, Optional, Tuple
 # ── Module-level state (mirrors Harold's globals) ─────────────────────────────
 
 _FO1_MODE: bool = False
-_DATA_DIR: str  = ""
 
 SCRIPT_TYPES = ["s_system", "s_spatial", "s_time", "s_item", "s_critter"]
 
@@ -148,22 +147,13 @@ def _parse_map_scripts(f, script_lst: List[str]) -> Dict[str, Any]:
 
 # ── Object parsing ────────────────────────────────────────────────────────────
 
-def _get_pro_subtype(path: str) -> int:
-    """Read the subtype field from a .PRO file (big-endian uint32 at offset 0x20)."""
-    with open(os.path.join(_DATA_DIR, path), "rb") as f:
-        f.seek(0x20)
-        return _ru32(f)
-
-
 def _parse_item_obj(f, frm_pid: int, proto_pid: int,
-                    items_lst: List[str], items_proto_lst: List[str]) -> Dict:
+                    items_lst: List[str]) -> Dict:
     item = {
         "type":    "item",
         "artPath": "art/items/" + _strip_ext(items_lst[frm_pid & 0xFFFF]),
     }
-    subtype = _get_pro_subtype(
-        "proto/items/" + items_proto_lst[(proto_pid & 0xFFFF) - 1]
-    )
+    subtype = _ru32(f)
 
     if   subtype == 4: item["subtype"] = "ammo";      item["ammoCount"] = _ru32(f)
     elif subtype == 3: item["subtype"] = "weapon";     f.read(8)
@@ -241,8 +231,7 @@ def _parse_object(f, lst: Dict[str, List[str]]) -> Dict[str, Any]:
     named_type: str       = ""
 
     if obj_type == 0:   # item
-        extra = _parse_item_obj(f, frm_pid, proto_pid,
-                    lst["items"], lst["proto_items"])
+        extra = _parse_item_obj(f, frm_pid, proto_pid, lst["items"])
         named_type = "item"
         art = extra.pop("artPath")
         extra.pop("type", None)
@@ -267,9 +256,7 @@ def _parse_object(f, lst: Dict[str, List[str]]) -> Dict[str, Any]:
     elif obj_type == 2:  # scenery
         named_type = "scenery"
         art = "art/scenery/" + _strip_ext(lst["scenery"][frm_pid & 0xFFFF])
-        subtype = _get_pro_subtype(
-            "proto/scenery/" + lst["proto_scenery"][(proto_pid & 0xFFFF) - 1]
-        )
+        subtype = _ru32(f)
         if subtype == 0:     # door
             extra["subtype"] = "door"
             f.read(4)
@@ -445,16 +432,11 @@ def export_map(data_dir: str, map_file: str, out_file: str,
     map_file  — path to the .MAP file
     out_file  — destination .json path
     """
-    global _DATA_DIR
-    _DATA_DIR = data_dir
-
     lst = {
-        "tiles":         _read_lst(data_dir, "art/tiles/tiles.lst"),
-        "scenery":       _read_lst(data_dir, "art/scenery/scenery.lst"),
-        "proto_scenery": _read_lst(data_dir, "proto/scenery/scenery.lst"),
-        "items":         _read_lst(data_dir, "art/items/items.lst"),
-        "proto_items":   _read_lst(data_dir, "proto/items/items.lst"),
-        "misc":          _read_lst(data_dir, "art/misc/misc.lst"),
+        "tiles":    _read_lst(data_dir, "art/tiles/tiles.lst"),
+        "scenery":  _read_lst(data_dir, "art/scenery/scenery.lst"),
+        "items":    _read_lst(data_dir, "art/items/items.lst"),
+        "misc":     _read_lst(data_dir, "art/misc/misc.lst"),
         "walls":         _read_lst(data_dir, "art/walls/walls.lst"),
         "critters":      _read_lst(data_dir, "art/critters/critters.lst"),
         "scripts":       _read_lst(data_dir, "scripts/scripts.lst"),
