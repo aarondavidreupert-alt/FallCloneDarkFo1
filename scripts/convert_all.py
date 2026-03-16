@@ -1,334 +1,285 @@
 #!/usr/bin/env python3
 """
-convert_all.py — Master asset pipeline for FallClone.
+convert_all.py — Asset pipeline for FallClone.
 
-Runs the full conversion pipeline in the correct order:
+Flow:
+  1. extract  — MASTER.DAT + CRITTER.DAT → public/assets/
+  2. pal      — color.pal → data/color.json
+  3. frm      — art/**/*.frm  → art/**/*.png + imageMap.json; delete .frm/.fr[0-5]
+  4. map      — maps/*.map    → maps/*.json;                  delete .map
+  5. pro      — proto/**/*.pro → proto/pro.json;              delete .pro
+  6. msg      — text/**/*.msg → data/text/**/*.json
+  7. audio    — sound/**/*.acm → sound/**/*.mp3;              delete .acm
 
-  0. copy_raw    — raw_assets/**/*.lst → public/assets/data/**/*.lst  (sorted copy)
-              — raw_assets/scripts/*.int → public/assets/data/scripts/
-  1. extract_dat — MASTER.DAT + CRITTER.DAT → data/        (skippable)
-  2. pal_to_json — color.pal → public/assets/data/color.json
-  3. frm_to_png  — art/**/*.frm → public/assets/art/**/*.png + imageMap.json
-  4. map_to_json — maps/*.map  → public/assets/maps/*.json
-  5. pro_to_json — proto/**/*.pro → public/assets/proto/pro.json
-  6. msg_to_json — text/english/**/*.msg → public/assets/data/text/.../*.json
-  7. acm_to_mp3  — sound/**/*.acm → public/assets/sound/**/*.mp3
-
-Based on Harold's darkfo reference scripts (Python 3.9+ rewrite).
+.lst / .txt / .pal / .int are left untouched after extraction.
+All output lives under a single public/assets/ tree — no raw_assets/ staging.
+A full convert.log is written to the project root.
 
 Usage:
     python convert_all.py FALLOUT_DIR [options]
 
-    FALLOUT_DIR   Path to Fallout 1 installation
-                  (contains MASTER.DAT and CRITTER.DAT,
-                   or an already-extracted data/ subdirectory)
+    FALLOUT_DIR   Fallout installation directory (contains MASTER.DAT etc.)
 
 Options:
-    --data-dir DIR    Where to find/place extracted raw data  [raw_assets/]
-    --out-dir  DIR    Web asset output root                    [public/assets]
-    --jobs N          Parallel workers for images/maps/audio  [4]
-    --skip-lst        Skip .lst copy (sorted copy to public/assets/data/)
-    --skip-scripts    Skip .int copy (scripts/ → public/assets/data/scripts/)
-    --skip-extract    Skip DAT extraction (data/ already exists)
-    --skip-images     Skip FRM → PNG conversion
-    --skip-maps       Skip MAP → JSON conversion
-    --skip-pro        Skip PRO → JSON conversion
-    --skip-msg        Skip MSG → JSON conversion
-    --skip-audio      Skip ACM → MP3 conversion
-    --update          Skip art files already in imageMap.json (incremental)
-    --fo2             Input is Fallout 2 (DAT2 format, disables FO1 PRO mode)
-
-Examples:
-    # Full pipeline from Fallout 1 GOG install
-    python convert_all.py "C:/GOG Games/Fallout"
-
-    # Already extracted, re-convert art only (incremental)
-    python convert_all.py /games/fallout --skip-extract --skip-maps \\
-        --skip-pro --skip-msg --skip-audio --update
-
-    # Fallout 2 full pipeline
-    python convert_all.py "C:/GOG Games/Fallout2" --fo2
+    --out-dir DIR     Web asset root   [public/assets]
+    --jobs N          Parallel workers [4]
+    --skip-extract    Skip DAT extraction (public/assets/ already populated)
+    --skip-images     Skip FRM → PNG
+    --skip-maps       Skip MAP → JSON
+    --skip-pro        Skip PRO → JSON
+    --skip-msg        Skip MSG → JSON
+    --skip-audio      Skip ACM → MP3
+    --update          Incremental FRM: skip already-converted files
+    --fo2             Fallout 2 (DAT2 archives, FO2 PRO mode)
 """
 
-import re
-import shutil
 import sys
 import os
+import glob
 import argparse
 import time
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-
-# Matches lines whose first token is a numeric filename, e.g. "00000009.pro"
-_NUM_LST_LINE = re.compile(r"^(\d+)\.", re.IGNORECASE)
-
-
-def _num_lst_key(line: str) -> tuple[int, int]:
-    """Sort key: numeric-filename lines first (by value), others last."""
-    m = _NUM_LST_LINE.match(line.strip())
-    return (0, int(m.group(1))) if m else (1, 0)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_LOG_PATH = os.path.join(_PROJECT_ROOT, "convert.log")
 
 
-def _copy_lst(src: str, dst: str, rel: str) -> None:
-    """Read, optionally sort, and write a single .lst file."""
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    with open(src, "r", encoding="latin-1") as f:
-        lines = f.read().splitlines()
-    if any(_NUM_LST_LINE.match(l.strip()) for l in lines):
-        lines = sorted(lines, key=_num_lst_key)
-    with open(dst, "w", encoding="latin-1", newline="\n") as f:
-        f.write("\n".join(lines))
-        if lines:
-            f.write("\n")
-    print(f"  {rel}")
+# ── Tee: mirror all stdout/stderr to convert.log ──────────────────────────────
+
+class _Tee:
+    def __init__(self, primary, secondary):
+        self._p = primary
+        self._s = secondary
+
+    def write(self, data):
+        self._p.write(data)
+        self._s.write(data)
+
+    def flush(self):
+        self._p.flush()
+        self._s.flush()
+
+    def isatty(self):
+        return False
 
 
-def _run_lst(data_dir: str, out_dir: str) -> int:
-    """
-    Copy art .lst files from data_dir/art/<type>/<type>.lst into
-    out_dir/data/art/<type>/<type>.lst.
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-    DarkFO's loadLst() prepends "assets/data/" to the lst name, so
-    getLstId("art/items/items", pid) reads public/assets/data/art/items/items.lst.
-
-    Also copies data_dir/scripts/scripts.lst → out_dir/data/scripts/scripts.lst
-    (DarkFO calls getLstId("scripts/scripts", scriptID-1) in main.js).
-
-    Lines that look like numbered filenames (e.g. "00000009.pro") are sorted
-    numerically so getLstId returns the correct entry for each art/script ID.
-
-    Returns the number of files copied.
-    """
-    count = 0
-
-    # art/<type>/<type>.lst
-    art_dir = os.path.join(data_dir, "art")
-    if os.path.isdir(art_dir):
-        for type_name in sorted(os.listdir(art_dir)):
-            type_dir = os.path.join(art_dir, type_name)
-            if not os.path.isdir(type_dir):
-                continue
-            src = os.path.join(type_dir, type_name + ".lst")
-            if not os.path.isfile(src):
-                continue
-            rel = os.path.join("art", type_name, type_name + ".lst")
-            dst = os.path.join(out_dir, "data", rel)
-            _copy_lst(src, dst, rel)
-            count += 1
-    else:
-        print(f"  WARNING: art source dir not found ({art_dir}), skipping art .lst copy.")
-
-    # scripts/scripts.lst
-    scripts_lst = os.path.join(data_dir, "scripts", "scripts.lst")
-    if os.path.isfile(scripts_lst):
-        rel = os.path.join("scripts", "scripts.lst")
-        dst = os.path.join(out_dir, "data", rel)
-        _copy_lst(scripts_lst, dst, rel)
-        count += 1
-
-    return count
+def _step(n: int, label: str) -> None:
+    bar = "=" * 60
+    print(f"\n{bar}\n  Step {n}/7 — {label}\n{bar}")
 
 
-def _run_scripts(data_dir: str, out_dir: str) -> int:
-    """
-    Copy compiled Fallout script bytecode (.int) files into out_dir/data/scripts/.
-
-    Source:      data_dir/scripts/*.int
-    Destination: out_dir/data/scripts/   (DarkFO reads from assets/data/scripts/)
-
-    Note: scripts/scripts.lst is already handled by _run_lst(), which walks
-    data_dir recursively for .lst files.
-
-    Returns the number of .int files copied, or 0 with a warning if the source
-    directory does not exist.
-    """
-    src_dir = os.path.join(data_dir, "scripts")
-    dst_dir = os.path.join(out_dir, "data", "scripts")
-
-    if not os.path.isdir(src_dir):
-        print(f"  WARNING: scripts source dir not found ({src_dir}), skipping .int copy.")
-        return 0
-
-    os.makedirs(dst_dir, exist_ok=True)
-    count = 0
-    for fname in sorted(os.listdir(src_dir)):
-        if fname.lower().endswith(".int"):
-            shutil.copy2(os.path.join(src_dir, fname), os.path.join(dst_dir, fname))
-            count += 1
-
-    return count
+def _delete(path: str) -> None:
+    try:
+        os.remove(path)
+        print(f"  deleted  {path}")
+    except OSError as e:
+        print(f"  WARNING: could not delete {path}: {e}", file=sys.stderr)
 
 
-def _step(label: str) -> None:
-    print(f"\n{'='*60}")
-    print(f"  {label}")
-    print(f"{'='*60}")
+# ── Step runners ──────────────────────────────────────────────────────────────
 
+def _run_extract(fallout_dir: str, out_dir: str, force_fmt: str) -> None:
+    from extract_dat import extract_all_dats
+    print(f"  Source : {fallout_dir}")
+    print(f"  Output : {out_dir}")
+    extract_all_dats(fallout_dir, out_dir, force_fmt)
+
+
+def _run_pal(out_dir: str) -> None:
+    pal_path = os.path.join(out_dir, "color.pal")
+    if not os.path.exists(pal_path):
+        print(f"  WARNING: color.pal not found at {pal_path}, skipping.")
+        return
+    from pal_to_json import convert_pal
+    convert_pal(pal_path, os.path.join(out_dir, "data", "color.json"))
+
+
+def _run_frm(out_dir: str, n_jobs: int, update: bool) -> None:
+    from frm_to_png import convert_all as convert_frms
+    art_dir = os.path.join(out_dir, "art")
+    convert_frms(
+        data_dir        = out_dir,
+        out_dir         = art_dir,
+        n_jobs          = n_jobs,
+        write_image_map = True,
+        update          = update,
+    )
+    # Delete source FRM / FR[0-5] files where the PNG was produced
+    n_del = 0
+    for frm in glob.glob(os.path.join(art_dir, "**", "*.frm"), recursive=True):
+        if os.path.exists(os.path.splitext(frm)[0] + ".png"):
+            _delete(frm)
+            n_del += 1
+    for ext in ("fr0", "fr1", "fr2", "fr3", "fr4", "fr5"):
+        for frx in glob.glob(os.path.join(art_dir, "**", f"*.{ext}"), recursive=True):
+            if os.path.exists(os.path.splitext(frx)[0] + ".png"):
+                _delete(frx)
+                n_del += 1
+    print(f"  Deleted {n_del} source FRM/FR[0-5] files.")
+
+
+def _run_maps(out_dir: str, n_jobs: int) -> None:
+    from map_to_json import convert_maps
+    maps_dir = os.path.join(out_dir, "maps")
+    if not os.path.isdir(maps_dir):
+        print(f"  WARNING: maps/ not found at {maps_dir}, skipping.")
+        return
+    convert_maps(out_dir, maps_dir, maps_dir, n_jobs=n_jobs)
+    # Delete .map files where the .json was produced
+    n_del = 0
+    for mp in (glob.glob(os.path.join(maps_dir, "*.map")) +
+               glob.glob(os.path.join(maps_dir, "*.MAP"))):
+        stem = os.path.splitext(os.path.basename(mp))[0].lower()
+        if os.path.exists(os.path.join(maps_dir, stem + ".json")):
+            _delete(mp)
+            n_del += 1
+    print(f"  Deleted {n_del} .map source files.")
+
+
+def _run_pro(out_dir: str, n_jobs: int, fo1: bool) -> None:
+    from pro_to_json import convert_pro
+    n = convert_pro(data_dir=out_dir, out_dir=out_dir, fo1=fo1,
+                    n_jobs=n_jobs, verbose=False)
+    if n == 0:
+        return
+    # Delete .pro files once pro.json is confirmed on disk
+    pro_json = os.path.join(out_dir, "proto", "pro.json")
+    if not os.path.exists(pro_json):
+        return
+    n_del = 0
+    for pro in glob.glob(os.path.join(out_dir, "proto", "**", "*.pro"), recursive=True):
+        _delete(pro)
+        n_del += 1
+    print(f"  Deleted {n_del} .pro source files.")
+
+
+def _run_msg(out_dir: str) -> None:
+    from msg_to_json import convert_msg
+    convert_msg(data_dir=out_dir, out_dir=out_dir, verbose=False)
+
+
+def _run_audio(out_dir: str, n_jobs: int) -> None:
+    from acm_to_mp3 import convert_audio
+    sound_dir = os.path.join(out_dir, "sound")
+    if not os.path.isdir(sound_dir):
+        print(f"  WARNING: sound/ not found at {sound_dir}, skipping.")
+        return
+    convert_audio(out_dir, sound_dir, n_jobs=n_jobs)
+    # Delete .acm files where the .mp3 was produced
+    n_del = 0
+    for acm in glob.glob(os.path.join(sound_dir, "**", "*.acm"), recursive=True):
+        if os.path.exists(os.path.splitext(acm)[0] + ".mp3"):
+            _delete(acm)
+            n_del += 1
+    print(f"  Deleted {n_del} .acm source files.")
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="FallClone full asset conversion pipeline (Harold reference)"
+        description="FallClone asset pipeline — extract DATs and convert in-place"
     )
     ap.add_argument("fallout_dir",
                     help="Fallout installation directory (contains MASTER.DAT etc.)")
-    ap.add_argument("--data-dir",     default=None,
-                    help="Extracted data directory [raw_assets/]")
     ap.add_argument("--out-dir",      default=os.path.join("public", "assets"),
-                    help="Web asset output root [public/assets]")
+                    help="Web asset root [public/assets]")
     ap.add_argument("--jobs",         type=int, default=4)
-    ap.add_argument("--skip-lst",     action="store_true",
-                    help="Skip copying .lst index files to public/assets/data/")
-    ap.add_argument("--skip-scripts", action="store_true",
-                    help="Skip copying .int script bytecode to public/assets/data/scripts/")
     ap.add_argument("--skip-extract", action="store_true",
-                    help="Skip DAT extraction (data/ already exists)")
+                    help="Skip DAT extraction (out-dir already populated)")
     ap.add_argument("--skip-images",  action="store_true")
     ap.add_argument("--skip-maps",    action="store_true")
     ap.add_argument("--skip-pro",     action="store_true")
     ap.add_argument("--skip-msg",     action="store_true")
     ap.add_argument("--skip-audio",   action="store_true")
     ap.add_argument("--update",       action="store_true",
-                    help="Skip art already in imageMap.json (incremental)")
+                    help="Incremental FRM: skip already-converted files")
     ap.add_argument("--fo2",          action="store_true",
-                    help="Input is Fallout 2 (DAT2 archives, FO2 PRO mode)")
+                    help="Fallout 2 (DAT2 archives, FO2 PRO mode)")
     args = ap.parse_args()
 
     fallout_dir = os.path.abspath(args.fallout_dir)
-    # Default extraction target is raw_assets/ inside the project directory.
-    # This keeps all local Fallout data in one gitignored folder rather than
-    # writing outside the project tree.  raw_assets/ mirrors the DAT layout:
-    #   art/tiles/tiles.lst, art/critters/critters.lst,
-    #   proto/items/items.lst, proto/scenery/scenery.lst,
-    #   proto/critters/critters.lst, proto/walls/walls.lst,
-    #   scripts/scripts.lst, art/items/items.lst, art/walls/walls.lst,
-    #   art/misc/misc.lst, art/scenery/scenery.lst, ...
-    _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    data_dir    = os.path.abspath(args.data_dir or os.path.join(_project_root, "raw_assets"))
     out_dir     = os.path.abspath(args.out_dir)
-    art_dir     = os.path.join(out_dir, "art")
-    maps_dir    = os.path.join(out_dir, "maps")
-    sound_dir   = os.path.join(out_dir, "sound")
-    data_out    = os.path.join(out_dir, "data")
 
-    print("FallClone Asset Pipeline (Harold reference, Python 3.9+)")
+    log_file = open(_LOG_PATH, "w", encoding="utf-8")
+    sys.stdout = _Tee(sys.__stdout__, log_file)
+    sys.stderr = _Tee(sys.__stderr__, log_file)
+
+    try:
+        _run(args, fallout_dir, out_dir)
+    finally:
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__
+        log_file.close()
+
+
+def _run(args, fallout_dir: str, out_dir: str) -> None:
+    t_start = time.perf_counter()
+
+    print("FallClone Asset Pipeline")
     print(f"  Fallout dir : {fallout_dir}")
-    print(f"  Data dir    : {data_dir}")
-    print(f"  Output dir  : {out_dir}")
+    print(f"  Assets dir  : {out_dir}")
+    print(f"  Log         : {_LOG_PATH}")
     print(f"  Workers     : {args.jobs}")
     print(f"  Mode        : {'Fallout 2 (FO2)' if args.fo2 else 'Fallout 1 (FO1)'}")
 
-    t_start = time.perf_counter()
-
-    # ── Step 0: Copy raw index/script files ──────────────────────────────────
-    # Both steps require data_dir to be populated (run after extraction, or use
-    # --skip-extract when raw_assets/ is already present).
-    _step("Step 0/7 — Copying raw assets (.lst + .int) → public/assets/data/")
-
-    if os.path.isdir(data_dir):
-        if not args.skip_lst:
-            n_lst = _run_lst(data_dir, out_dir)
-            print(f"  Copied {n_lst} .lst file(s).")
-        else:
-            print("  .lst copy SKIPPED (--skip-lst)")
-
-        if not args.skip_scripts:
-            n_int = _run_scripts(data_dir, out_dir)
-            print(f"  Copied {n_int} .int script file(s).")
-        else:
-            print("  .int copy SKIPPED (--skip-scripts)")
-    else:
-        print(f"  WARNING: data dir not found ({data_dir}), skipping step 0.")
-
-    # ── Step 1: Extract DATs ──────────────────────────────────────────────────
+    # Step 1 — Extract
     if not args.skip_extract:
-        _step("Step 1/7 — Extracting DAT archives")
-        from extract_dat import extract_all_dats
-        force_fmt = "dat2" if args.fo2 else ""
-        extract_all_dats(fallout_dir, data_dir, force_fmt)
+        _step(1, "Extracting DATs → public/assets/")
+        _run_extract(fallout_dir, out_dir, "dat2" if args.fo2 else "")
     else:
         print("\nStep 1/7 — DAT extraction SKIPPED")
 
-    if not os.path.isdir(data_dir):
-        print(f"\nERROR: data directory not found: {data_dir}", file=sys.stderr)
-        print("Run without --skip-extract, or verify --data-dir.")
+    if not os.path.isdir(out_dir):
+        print(f"\nERROR: output directory not found: {out_dir}", file=sys.stderr)
         sys.exit(1)
 
-    # ── Step 2: PAL → JSON ────────────────────────────────────────────────────
-    _step("Step 2/7 — Converting palette (PAL → JSON)")
-    pal_path = os.path.join(data_dir, "color.pal")
-    if os.path.exists(pal_path):
-        from pal_to_json import convert_pal
-        pal_out = os.path.join(data_out, "color.json")
-        convert_pal(pal_path, pal_out)
-    else:
-        print(f"  WARNING: color.pal not found at {pal_path}, skipping.")
+    # Step 2 — PAL
+    _step(2, "color.pal → data/color.json")
+    _run_pal(out_dir)
 
-    # ── Step 3: FRM → PNG ─────────────────────────────────────────────────────
+    # Step 3 — FRM → PNG
     if not args.skip_images:
-        _step("Step 3/7 — Converting art (FRM → PNG + imageMap.json)")
-        from frm_to_png import convert_all as convert_frms
-        convert_frms(
-            data_dir        = data_dir,
-            out_dir         = art_dir,
-            n_jobs          = args.jobs,
-            write_image_map = True,
-            update          = args.update,
-        )
+        _step(3, "FRM → PNG + imageMap.json  (delete .frm/.fr[0-5] after)")
+        _run_frm(out_dir, args.jobs, args.update)
     else:
         print("\nStep 3/7 — FRM → PNG SKIPPED")
 
-    # ── Step 4: MAP → JSON ────────────────────────────────────────────────────
+    # Step 4 — MAP → JSON
     if not args.skip_maps:
-        _step("Step 4/7 — Converting maps (MAP → JSON)")
-        maps_src = os.path.join(data_dir, "maps")
-        if os.path.isdir(maps_src):
-            from map_to_json import convert_maps
-            convert_maps(data_dir, maps_src, maps_dir, n_jobs=args.jobs)
-        else:
-            print(f"  WARNING: maps directory not found at {maps_src}, skipping.")
+        _step(4, "MAP → JSON  (delete .map after)")
+        _run_maps(out_dir, args.jobs)
     else:
         print("\nStep 4/7 — MAP → JSON SKIPPED")
 
-    # ── Step 5: PRO → JSON ────────────────────────────────────────────────────
+    # Step 5 — PRO → JSON
     if not args.skip_pro:
-        _step("Step 5/7 — Converting prototypes (PRO → JSON)")
-        from pro_to_json import convert_pro
-        convert_pro(
-            data_dir = data_dir,
-            out_dir  = out_dir,
-            fo1      = not args.fo2,
-            n_jobs   = args.jobs,
-            verbose  = False,
-        )
+        _step(5, "PRO → proto/pro.json  (delete .pro after)")
+        _run_pro(out_dir, args.jobs, fo1=not args.fo2)
     else:
         print("\nStep 5/7 — PRO → JSON SKIPPED")
 
-    # ── Step 6: MSG → JSON ────────────────────────────────────────────────────
+    # Step 6 — MSG → JSON
     if not args.skip_msg:
-        _step("Step 6/7 — Converting messages (MSG → JSON)")
-        from msg_to_json import convert_msg
-        convert_msg(
-            data_dir = data_dir,
-            out_dir  = out_dir,
-            verbose  = False,
-        )
+        _step(6, "MSG → JSON")
+        _run_msg(out_dir)
     else:
         print("\nStep 6/7 — MSG → JSON SKIPPED")
 
-    # ── Step 7: ACM → MP3 ────────────────────────────────────────────────────
+    # Step 7 — ACM → MP3
     if not args.skip_audio:
-        _step("Step 7/7 — Converting audio (ACM → MP3)")
-        from acm_to_mp3 import convert_audio
-        convert_audio(data_dir, sound_dir, n_jobs=args.jobs)
+        _step(7, "ACM → MP3  (delete .acm after)")
+        _run_audio(out_dir, args.jobs)
     else:
         print("\nStep 7/7 — ACM → MP3 SKIPPED")
 
-    # ── Summary ───────────────────────────────────────────────────────────────
     elapsed = time.perf_counter() - t_start
     print(f"\n{'='*60}")
-    print(f"  All done in {elapsed:.1f}s")
-    print(f"  Web assets written to: {out_dir}")
+    print(f"  Done in {elapsed:.1f}s  →  {out_dir}")
+    print(f"  Log: {_LOG_PATH}")
     print(f"{'='*60}\n")
 
 
