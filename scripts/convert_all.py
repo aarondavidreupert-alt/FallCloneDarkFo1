@@ -70,47 +70,63 @@ def _num_lst_key(line: str) -> tuple[int, int]:
     return (0, int(m.group(1))) if m else (1, 0)
 
 
+def _copy_lst(src: str, dst: str, rel: str) -> None:
+    """Read, optionally sort, and write a single .lst file."""
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    with open(src, "r", encoding="latin-1") as f:
+        lines = f.read().splitlines()
+    if any(_NUM_LST_LINE.match(l.strip()) for l in lines):
+        lines = sorted(lines, key=_num_lst_key)
+    with open(dst, "w", encoding="latin-1", newline="\n") as f:
+        f.write("\n".join(lines))
+        if lines:
+            f.write("\n")
+    print(f"  {rel}")
+
+
 def _run_lst(data_dir: str, out_dir: str) -> int:
     """
-    Copy every .lst file from data_dir into out_dir/data/{rel}.
+    Copy art .lst files from data_dir/art/<type>/<type>.lst into
+    out_dir/data/art/<type>/<type>.lst.
 
-    DarkFO's loadLst() prepends "assets/data/" to the lst name, so all .lst
-    files must live under public/assets/data/ — NOT public/assets/ directly.
+    DarkFO's loadLst() prepends "assets/data/" to the lst name, so
+    getLstId("art/items/items", pid) reads public/assets/data/art/items/items.lst.
 
-      raw_assets/proto/items/items.lst  → public/assets/data/proto/items/items.lst
-      raw_assets/art/critters/critters.lst → public/assets/data/art/critters/critters.lst
+    Also copies data_dir/scripts/scripts.lst → out_dir/data/scripts/scripts.lst
+    (DarkFO calls getLstId("scripts/scripts", scriptID-1) in main.js).
 
     Lines that look like numbered filenames (e.g. "00000009.pro") are sorted
-    numerically so getLstId(lst, pidID-1) returns the correct entry for each
-    proto/art ID regardless of the order they were stored in the DAT archive.
+    numerically so getLstId returns the correct entry for each art/script ID.
 
     Returns the number of files copied.
     """
-    root = data_dir
     count = 0
-    for dirpath, _dirnames, filenames in os.walk(root):
-        for fname in filenames:
-            if fname.lower().endswith(".lst"):
-                src = os.path.join(dirpath, fname)
-                rel = os.path.relpath(src, root)
-                # Place under out_dir/data/ so DarkFO's loadLst() can find it
-                dst = os.path.join(out_dir, "data", rel)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
 
-                with open(src, "r", encoding="latin-1") as f:
-                    lines = f.read().splitlines()
+    # art/<type>/<type>.lst
+    art_dir = os.path.join(data_dir, "art")
+    if os.path.isdir(art_dir):
+        for type_name in sorted(os.listdir(art_dir)):
+            type_dir = os.path.join(art_dir, type_name)
+            if not os.path.isdir(type_dir):
+                continue
+            src = os.path.join(type_dir, type_name + ".lst")
+            if not os.path.isfile(src):
+                continue
+            rel = os.path.join("art", type_name, type_name + ".lst")
+            dst = os.path.join(out_dir, "data", rel)
+            _copy_lst(src, dst, rel)
+            count += 1
+    else:
+        print(f"  WARNING: art source dir not found ({art_dir}), skipping art .lst copy.")
 
-                # Sort numerically if any line looks like a numbered filename
-                if any(_NUM_LST_LINE.match(l.strip()) for l in lines):
-                    lines = sorted(lines, key=_num_lst_key)
+    # scripts/scripts.lst
+    scripts_lst = os.path.join(data_dir, "scripts", "scripts.lst")
+    if os.path.isfile(scripts_lst):
+        rel = os.path.join("scripts", "scripts.lst")
+        dst = os.path.join(out_dir, "data", rel)
+        _copy_lst(scripts_lst, dst, rel)
+        count += 1
 
-                with open(dst, "w", encoding="latin-1", newline="\n") as f:
-                    f.write("\n".join(lines))
-                    if lines:
-                        f.write("\n")
-
-                print(f"  {rel}")
-                count += 1
     return count
 
 
